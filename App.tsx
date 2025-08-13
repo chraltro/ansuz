@@ -6,6 +6,7 @@ import FileExplorer, { ProcessingStatus } from './components/FileExplorer';
 import CodeExplainerView from './components/CodeExplainerView';
 import { explainFileStream, explainSnippetStream } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
+import ApiKeyScreen from './components/ApiKeyScreen';
 
 const getAllFiles = (node: FileNode, files: FileNode[] = []): FileNode[] => {
     if (node.content !== null) {
@@ -27,7 +28,14 @@ interface DeepDiveStatus {
 
 const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
-  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string | null>(() => {
+    // Prioritize the environment variable for environments like Google AI Studio
+    if (process.env.API_KEY) {
+        return process.env.API_KEY;
+    }
+    // Fallback to local storage for user-provided keys
+    return localStorage.getItem('gemini_api_key');
+  });
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const [explanationsCache, setExplanationsCache] = useState<Map<string, Explanation>>(new Map());
   const [processingStatus, setProcessingStatus] = useState<Map<string, ProcessingStatus>>(new Map());
@@ -48,9 +56,12 @@ const App: React.FC = () => {
   
   const isProcessingQueueActive = processingQueue.length > 0 || Array.from(processingStatus.values()).some(s => s === 'processing');
 
-  const handleProjectReady = (rootNode: FileNode, newApiKey: string) => {
-    setFileTree(rootNode);
+  const handleApiKeySubmit = (newApiKey: string) => {
     setApiKey(newApiKey);
+  };
+
+  const handleProjectReady = (rootNode: FileNode) => {
+    setFileTree(rootNode);
     const allFiles = getAllFiles(rootNode);
     if(allFiles.length > 0) {
         handleSelectFile(allFiles[0]);
@@ -91,8 +102,17 @@ const App: React.FC = () => {
                 if (mode === 'find_explanation') {
                     const markerIndex = buffer.indexOf(EXPLANATION_MARKER);
                     if (markerIndex === -1) break;
-
-                    currentCodeBlock = buffer.slice(0, markerIndex).trim();
+                    
+                    let codeContent = buffer.slice(0, markerIndex);
+                    // The model is told to put a newline after ---CODE---. Let's remove that one.
+                    if (codeContent.startsWith('\n')) {
+                        codeContent = codeContent.substring(1);
+                    }
+                    // And it might add a newline before ---EXPLANATION---. Let's remove that one too.
+                    if (codeContent.endsWith('\n')) {
+                        codeContent = codeContent.slice(0, -1);
+                    }
+                    currentCodeBlock = codeContent;
                     
                     if (currentCodeBlock) {
                         setExplanationsCache(prev => {
@@ -187,13 +207,23 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error(`Error streaming explanation for ${file.name}:`, error);
-       if (error instanceof Error && error.message.includes('API key not valid')) {
+       if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('API key is invalid'))) {
+            const isEnvKey = !!process.env.API_KEY && apiKey === process.env.API_KEY;
             setExplanationsCache(prev => {
                 const newCache = new Map(prev);
-                const block = { code_block: `// Error for ${file.name}`, explanation: `Failed to analyze file. The provided API Key seems to be invalid. Please refresh and try again with a valid key.` };
+                const errorMessage = isEnvKey
+                    ? `Failed to analyze file. The API Key provided by the environment appears to be invalid.`
+                    : `Failed to analyze file. The provided API Key is invalid. Please enter a valid key.`;
+                const block = { code_block: `// Error for ${file.name}`, explanation: errorMessage };
                 newCache.set(file.path, { blocks: [block] });
                 return newCache;
             });
+
+            if (!isEnvKey) {
+                // Clear invalid user-provided API key and force re-entry
+                localStorage.removeItem('gemini_api_key');
+                setApiKey(null);
+            }
        }
     } finally {
       setProcessingStatus(prev => new Map(prev).set(file.path, 'done'));
@@ -252,6 +282,32 @@ const App: React.FC = () => {
           }
       } catch (error) {
           console.error("Deep dive failed:", error);
+          if (!selectedFile) return;
+
+          const isEnvKey = !!process.env.API_KEY && apiKey === process.env.API_KEY;
+          let errorMessage = '**Deep Dive Failed:** An unexpected error occurred.';
+
+          if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('API key is invalid'))) {
+              errorMessage = isEnvKey
+                  ? '**Deep Dive Failed:** The API Key provided by the environment appears to be invalid.'
+                  : '**Deep Dive Failed:** The provided API Key is invalid. You will be prompted for a new key.';
+              
+              if (!isEnvKey) {
+                  localStorage.removeItem('gemini_api_key');
+                  setApiKey(null);
+              }
+          }
+          
+          setExplanationsCache(prev => {
+              const newCache = new Map(prev);
+              const currentExpl = newCache.get(selectedFile.path);
+              if (currentExpl) {
+                  const newBlocks = [...currentExpl.blocks];
+                  newBlocks[blockIndex] = { ...newBlocks[blockIndex], deep_dive_explanation: errorMessage };
+                  newCache.set(selectedFile.path, { ...currentExpl, blocks: newBlocks });
+              }
+              return newCache;
+          });
       } finally {
           setDeepDiveStatus({ file: null, blockIndex: null, isLoading: false });
       }
@@ -275,6 +331,10 @@ const App: React.FC = () => {
         <p className="mt-4 text-xl">Loading files...</p>
       </div>
     );
+  }
+
+  if (!apiKey) {
+    return <ApiKeyScreen onApiKeySubmit={handleApiKeySubmit} />;
   }
 
   if (!fileTree) {

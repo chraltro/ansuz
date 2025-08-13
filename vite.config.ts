@@ -13,6 +13,31 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       }
+    },
+    build: {
+      rollupOptions: {
+        external: [
+          'react',
+          'react-dom',
+          'react-dom/client',
+          '@google/genai',
+          'react-syntax-highlighter',
+          'react-syntax-highlighter/dist/esm/styles/prism',
+          'react-markdown',
+          'remark-gfm'
+        ],
+        output: {
+          globals: {
+            'react': 'React',
+            'react-dom': 'ReactDOM',
+            'react-dom/client': 'ReactDOM',
+            '@google/genai': 'GoogleGenAI',
+            'react-syntax-highlighter': 'ReactSyntaxHighlighter',
+            'react-markdown': 'ReactMarkdown',
+            'remark-gfm': 'remarkGfm'
+          }
+        }
+      }
     }
   };
 });

@@ -1,0 +1,5 @@
+{
+  "name": "AI Code Explainer",
+  "description": "An application where users can upload code files and receive detailed, AI-powered explanations for each part of the code. Features a file explorer, a code viewer with syntax highlighting, and an interactive explanation pane.",
+  "requestFramePermissions": []
+}

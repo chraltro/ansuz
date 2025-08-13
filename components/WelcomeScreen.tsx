@@ -1,33 +1,17 @@
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef } from 'react';
 import type { FileNode } from '../types';
 
 interface WelcomeScreenProps {
-  onProjectReady: (files: FileNode, apiKey: string) => void;
+  onProjectReady: (files: FileNode) => void;
   setIsLoading: (isLoading: boolean) => void;
 }
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoading }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [apiKeyError, setApiKeyError] = useState('');
-
-  useEffect(() => {
-    const savedApiKey = localStorage.getItem('gemini_api_key');
-    if (savedApiKey) {
-      setApiKey(savedApiKey);
-    }
-  }, []);
 
   const handleUploadClick = (type: 'file' | 'folder') => {
-    if (!apiKey.trim()) {
-      setApiKeyError('Please enter your Gemini API Key to continue.');
-      return;
-    }
-    localStorage.setItem('gemini_api_key', apiKey);
-    setApiKeyError('');
-
     if (type === 'file') {
       fileInputRef.current?.click();
     } else {
@@ -39,11 +23,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
     const selectedFiles = event.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
     
-    if (!apiKey.trim()) {
-      setApiKeyError('Please enter your Gemini API Key to continue.');
-      return;
-    }
-
     setIsLoading(true);
 
     const root: FileNode = { name: 'root', content: null, children: [], path: '' };
@@ -81,7 +60,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
 
     try {
         await Promise.all(filePromises);
-        onProjectReady(root, apiKey);
+        onProjectReady(root);
     } catch(error) {
         console.error("Error reading files:", error);
         // Add user-facing error handling here
@@ -97,28 +76,11 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
       <div className="text-center p-10 border-2 border-dashed border-gray-700 rounded-2xl max-w-2xl w-full">
-        <h1 className="text-4xl font-bold text-blue-light mb-4">AI Code Explainer</h1>
-        <p className="text-lg text-gray-500 mb-6">
+        <h1 className="text-4xl font-bold text-blue-light mb-4">Ready to Analyze</h1>
+        <p className="text-lg text-gray-500 mb-8">
           Upload your code to get a detailed, AI-powered breakdown. Select individual files or an entire project folder.
         </p>
         
-        <div className="mb-6 max-w-md mx-auto">
-          <label htmlFor="api-key-input" className="sr-only">Gemini API Key</label>
-          <input
-            id="api-key-input"
-            type="password"
-            value={apiKey}
-            onChange={(e) => {
-              setApiKey(e.target.value);
-              if (e.target.value) setApiKeyError('');
-            }}
-            placeholder="Enter your Gemini API Key"
-            className={`w-full bg-gray-800 border-2 text-blue-light rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-accent transition-colors ${apiKeyError ? 'border-orange-accent/60' : 'border-gray-700'}`}
-            aria-describedby="api-key-error"
-          />
-          {apiKeyError && <p id="api-key-error" className="text-orange-accent text-sm mt-2">{apiKeyError}</p>}
-        </div>
-
         <input
           type="file"
           ref={fileInputRef}
@@ -151,10 +113,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
               Select Folder
             </button>
         </div>
-
-         <p className="text-sm text-gray-600 mt-6">
-            Your API key is stored in your browser's local storage and is never sent to our servers.
-        </p>
       </div>
     </div>
   );

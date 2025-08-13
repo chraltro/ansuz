@@ -1,5 +1,5 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import type { FileNode } from '../types';
 
 interface WelcomeScreenProps {
@@ -9,15 +9,30 @@ interface WelcomeScreenProps {
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoading }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [apiKey, setApiKey] = useState('');
   const [apiKeyError, setApiKeyError] = useState('');
 
-  const handleButtonClick = () => {
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem('gemini_api_key');
+    if (savedApiKey) {
+      setApiKey(savedApiKey);
+    }
+  }, []);
+
+  const handleUploadClick = (type: 'file' | 'folder') => {
     if (!apiKey.trim()) {
       setApiKeyError('Please enter your Gemini API Key to continue.');
       return;
     }
-    fileInputRef.current?.click();
+    localStorage.setItem('gemini_api_key', apiKey);
+    setApiKeyError('');
+
+    if (type === 'file') {
+      fileInputRef.current?.click();
+    } else {
+      folderInputRef.current?.click();
+    }
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -72,6 +87,10 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
         // Add user-facing error handling here
     } finally {
         setIsLoading(false);
+        // Reset file input value to allow re-uploading the same file/folder
+        if(event.target) {
+            event.target.value = '';
+        }
     }
   };
 
@@ -80,7 +99,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
       <div className="text-center p-10 border-2 border-dashed border-gray-700 rounded-2xl max-w-2xl w-full">
         <h1 className="text-4xl font-bold text-blue-light mb-4">AI Code Explainer</h1>
         <p className="text-lg text-gray-500 mb-6">
-          Upload your code file(s) to get a detailed, AI-powered breakdown. Understand the 'what' and the 'why' behind every line.
+          Upload your code to get a detailed, AI-powered breakdown. Select individual files or an entire project folder.
         </p>
         
         <div className="mb-6 max-w-md mx-auto">
@@ -107,15 +126,34 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
           className="hidden"
           multiple
         />
-        <button
-          onClick={handleButtonClick}
-          className="bg-blue-accent hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-blue-accent/20"
-        >
-          Select File(s)
-        </button>
+        <input
+          type="file"
+          ref={folderInputRef}
+          onChange={handleFileChange}
+          className="hidden"
+          // @ts-ignore
+          webkitdirectory=""
+          directory=""
+        />
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <button
+              onClick={() => handleUploadClick('file')}
+              className="w-full sm:w-auto bg-blue-accent hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-blue-accent/20"
+            >
+              Select File(s)
+            </button>
+            <span className="text-gray-600 font-medium">OR</span>
+            <button
+              onClick={() => handleUploadClick('folder')}
+              className="w-full sm:w-auto bg-cyan-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-cyan-accent/20"
+            >
+              Select Folder
+            </button>
+        </div>
 
          <p className="text-sm text-gray-600 mt-6">
-            All processing happens in your browser and through the Gemini API. Your code and API key are not stored on our servers.
+            Your API key is stored in your browser's local storage and is never sent to our servers.
         </p>
       </div>
     </div>

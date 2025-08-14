@@ -34,6 +34,7 @@ const getLanguage = (filename: string): string => {
     case 'css': return 'css';
     case 'json': return 'json';
     case 'md': return 'markdown';
+    case 'yml': case 'yaml': return 'yaml';
     default: return 'clike';
   }
 };
@@ -59,6 +60,33 @@ const findBlock = (source: string, blockFromAI: string, startIndex: number): { i
             return { index, content: blockWithCRLF };
         }
     }
+    
+    // If still no match, try normalizing whitespace (common with cached explanations)
+    // This handles cases where cached blocks have different whitespace formatting
+    const normalizeWhitespace = (text: string) => text.trim().replace(/\s+/g, ' ');
+    const normalizedBlock = normalizeWhitespace(blockFromAI);
+    
+    // Search through the source for a block with matching normalized content
+    const sourceLines = source.substring(startIndex).split('\n');
+    let currentPos = startIndex;
+    
+    for (let i = 0; i < sourceLines.length; i++) {
+        // Try different window sizes for matching
+        for (let windowSize = 1; windowSize <= Math.min(5, sourceLines.length - i); windowSize++) {
+            const candidateLines = sourceLines.slice(i, i + windowSize);
+            const candidateBlock = candidateLines.join('\n');
+            
+            if (normalizeWhitespace(candidateBlock) === normalizedBlock) {
+                // Found a match! Calculate the actual position
+                const beforeCandidate = sourceLines.slice(0, i).join('\n');
+                const actualIndex = startIndex + (i > 0 ? beforeCandidate.length + 1 : 0);
+                return { index: actualIndex, content: candidateBlock };
+            }
+        }
+        
+        currentPos += sourceLines[i].length + 1; // +1 for newline
+    }
+    
     return null;
 };
 

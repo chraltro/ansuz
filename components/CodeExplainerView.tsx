@@ -161,6 +161,7 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
     }
   }, [explanation?.blocks.length, isLoading, explanationSegments.length]);
 
+  const codeLines = useMemo(() => code.split('\n'), [code]);
   const language = getLanguage(fileName);
   const showInitialLoading = isLoading && (!explanation || explanation.blocks.length === 0);
 
@@ -185,9 +186,12 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
   const lineProps = (lineNumber: number): React.HTMLProps<HTMLElement> => {
       const meta = lineMetadata.get(lineNumber);
       const style: CSSProperties = { display: 'block', width: '100%', transition: 'background-color 0.2s' };
+      const lineContent = codeLines[lineNumber - 1]?.trim();
 
       if (!meta) {
-          style.opacity = 0.5;
+          if (lineContent !== '') {
+            style.opacity = 0.5;
+          }
           return { style };
       }
 

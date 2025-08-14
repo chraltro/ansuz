@@ -1,5 +1,5 @@
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import type { FileNode } from '../types';
 
 interface WelcomeScreenProps {
@@ -10,6 +10,9 @@ interface WelcomeScreenProps {
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoading }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const [showPasteArea, setShowPasteArea] = useState(false);
+  const [pastedCode, setPastedCode] = useState('');
+  const [fileName, setFileName] = useState('pasted-code');
 
   const handleUploadClick = (type: 'file' | 'folder') => {
     if (type === 'file') {
@@ -82,12 +85,106 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
     }
   };
 
+  const parseMultiFileContent = (content: string): FileNode[] => {
+    // Check if content contains multi-file format (### `filename`)
+    const multiFilePattern = /^###\s*`([^`]+)`\s*\n/gm;
+    const matches = Array.from(content.matchAll(multiFilePattern));
+    
+    if (matches.length === 0) {
+      // Single file format
+      const fileExtension = fileName.includes('.') ? fileName : `${fileName}.txt`;
+      return [{
+        name: fileExtension,
+        content: content,
+        children: [],
+        path: fileExtension,
+      }];
+    }
+
+    // Multi-file format
+    const files: FileNode[] = [];
+    let lastIndex = 0;
+
+    matches.forEach((match, index) => {
+      const filename = match[1];
+      const startIndex = match.index! + match[0].length;
+      
+      // Find the end of this file's content (start of next file or end of string)
+      let endIndex = content.length;
+      if (index < matches.length - 1) {
+        endIndex = matches[index + 1].index!;
+      }
+      
+      // Extract content between code blocks (remove ```language and ``` markers)
+      let fileContent = content.substring(startIndex, endIndex).trim();
+      
+      // Remove code block markers if present
+      const codeBlockMatch = fileContent.match(/^```[\w]*\n([\s\S]*?)\n```$/);
+      if (codeBlockMatch) {
+        fileContent = codeBlockMatch[1];
+      }
+      
+      files.push({
+        name: filename,
+        content: fileContent,
+        children: [],
+        path: filename,
+      });
+    });
+
+    return files;
+  };
+
+  const handlePasteSubmit = () => {
+    if (!pastedCode.trim()) return;
+    
+    setIsLoading(true);
+
+    try {
+      const parsedFiles = parseMultiFileContent(pastedCode);
+      
+      // Check if we exceed the 25-file limit
+      if (parsedFiles.length > 25) {
+        alert(`Error: Too many files parsed (${parsedFiles.length}). This tool supports up to 25 files at once. Please split your content into smaller batches.`);
+        return;
+      }
+      
+      const root: FileNode = {
+        name: 'root',
+        content: null,
+        children: parsedFiles,
+        path: ''
+      };
+
+      onProjectReady(root);
+    } catch(error) {
+      console.error("Error processing pasted code:", error);
+      alert("Error parsing the pasted content. Please check the format and try again.");
+    } finally {
+      setIsLoading(false);
+      // Reset paste area
+      setPastedCode('');
+      setFileName('pasted-code');
+      setShowPasteArea(false);
+    }
+  };
+
+  const handleShowPaste = () => {
+    setShowPasteArea(true);
+  };
+
+  const handleCancelPaste = () => {
+    setShowPasteArea(false);
+    setPastedCode('');
+    setFileName('pasted-code');
+  };
+
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
       <div className="text-center p-10 border-2 border-dashed border-gray-700 rounded-2xl max-w-2xl w-full">
         <h1 className="text-4xl font-bold text-blue-light mb-4">Ready to Analyze</h1>
         <p className="text-lg text-gray-500 mb-8">
-          Upload your code to get a detailed, AI-powered breakdown. Select individual files or an entire project folder.
+          Upload your code to get a detailed, AI-powered breakdown. Select files, folders, or paste code directly.
         </p>
         
         <input
@@ -107,21 +204,92 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
           directory=""
         />
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button
-              onClick={() => handleUploadClick('file')}
-              className="w-full sm:w-auto bg-blue-accent hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-blue-accent/20"
-            >
-              Select File(s)
-            </button>
-            <span className="text-gray-600 font-medium">OR</span>
-            <button
-              onClick={() => handleUploadClick('folder')}
-              className="w-full sm:w-auto bg-cyan-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-cyan-accent/20"
-            >
-              Select Folder
-            </button>
-        </div>
+        {!showPasteArea ? (
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <button
+                onClick={() => handleUploadClick('file')}
+                className="w-full sm:w-auto bg-blue-accent hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-blue-accent/20"
+              >
+                Select File(s)
+              </button>
+              <span className="text-gray-600 font-medium">OR</span>
+              <button
+                onClick={() => handleUploadClick('folder')}
+                className="w-full sm:w-auto bg-cyan-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-cyan-accent/20"
+              >
+                Select Folder
+              </button>
+              <span className="text-gray-600 font-medium">OR</span>
+              <button
+                onClick={handleShowPaste}
+                className="w-full sm:w-auto bg-orange-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-orange-accent/20"
+              >
+                Paste Code
+              </button>
+          </div>
+        ) : (
+          <div className="w-full space-y-4">
+            <div className="text-left">
+              <label htmlFor="filename" className="block text-sm font-medium text-gray-300 mb-2">
+                Filename (for single file only):
+              </label>
+              <input
+                id="filename"
+                type="text"
+                value={fileName}
+                onChange={(e) => setFileName(e.target.value)}
+                placeholder="e.g., main.py, app.js, config.yml"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-accent"
+              />
+            </div>
+            
+            <div className="text-left">
+              <label htmlFor="code-paste" className="block text-sm font-medium text-gray-300 mb-2">
+                Paste your code here:
+              </label>
+              <div className="mb-2 text-xs text-gray-400">
+                <strong>Single file:</strong> Just paste your code<br/>
+                <strong>Multiple files:</strong> Use format: <code className="bg-gray-700 px-1 rounded">### `filename.ext`</code> followed by code block
+              </div>
+              <textarea
+                id="code-paste"
+                value={pastedCode}
+                onChange={(e) => setPastedCode(e.target.value)}
+                placeholder={`Single file: Just paste your code here...
+
+Multiple files format:
+### \`index.html\`
+\`\`\`html
+<!DOCTYPE html>
+<html>...
+\`\`\`
+
+### \`main.js\`
+\`\`\`javascript
+console.log('Hello');
+\`\`\``}
+                rows={16}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-accent font-mono text-sm resize-vertical"
+              />
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={handlePasteSubmit}
+                disabled={!pastedCode.trim()}
+                className="px-6 py-3 bg-blue-accent hover:bg-opacity-80 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all duration-300 shadow-lg shadow-blue-accent/20"
+              >
+                Analyze Code
+              </button>
+              <button
+                onClick={handleCancelPaste}
+                className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-all duration-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

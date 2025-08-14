@@ -23,6 +23,15 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
     const selectedFiles = event.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
     
+    // Check file limit
+    if (selectedFiles.length > 25) {
+      alert(`Error: Too many files selected (${selectedFiles.length}). This tool supports up to 25 files at once. Please select fewer files or break your upload into smaller batches.`);
+      if(event.target) {
+        event.target.value = '';
+      }
+      return;
+    }
+    
     setIsLoading(true);
 
     const root: FileNode = { name: 'root', content: null, children: [], path: '' };

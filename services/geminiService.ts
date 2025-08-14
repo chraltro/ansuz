@@ -29,56 +29,51 @@ const bulkSystemInstruction = `You are an expert software engineer acting as a c
 }
 `;
 
-export const explainFileInBulk = async (fileName: string, code: string, apiKey: string): Promise<Explanation> => {
+export const explainFileInBulk = (fileName: string, code: string, apiKey: string) => {
     if (!apiKey) {
       throw new Error("Gemini API key is not configured.");
     }
     const ai = new GoogleGenAI({ apiKey });
   
     if (!code.trim()) {
-      return { blocks: [{ code_block: "// This file is empty.", explanation: "There is no code in this file to analyze." }]};
+      return Promise.resolve({ blocks: [{ code_block: "// This file is empty.", explanation: "There is no code in this file to analyze." }]});
     }
     
-    const response = await ai.models.generateContent({
+    console.log(`🤖 API Call: Streaming bulk explanation for file "${fileName}" (${code.length} characters)`);
+    
+    const streamingSystemInstruction = `You are an expert software engineer acting as a code tutor. Your task is to analyze the provided code and generate concise, block-by-block explanations.
+
+**CRITICAL STREAMING FORMAT:**
+You MUST respond by streaming explanations as individual JSON objects, one per line:
+{"code_block": "exact verbatim code snippet", "explanation": "markdown explanation"}
+{"code_block": "next exact verbatim code snippet", "explanation": "markdown explanation"}
+...
+
+**CRITICAL RESPONSE FORMAT RULES:**
+1. **ONE JSON OBJECT PER LINE:** Each code block and explanation pair must be a separate JSON object on its own line.
+2. **VERBATIM CODE:** The "code_block" value MUST be an exact, verbatim, character-for-character copy of a snippet from the original file.
+3. **SEQUENTIAL & NON-REPEATING:** Process the file sequentially from top to bottom. Once you explain a code block, DO NOT include it again.
+
+**EXPLANATION & MARKDOWN STYLE RULES:**
+- **MANDATORY Markdown:** All "explanation" values must be in well-formatted Markdown.
+- **NO TABLES:** You MUST NOT use markdown tables. Use bulleted lists instead.
+- **Paragraphs are REQUIRED:** Break up ideas into separate paragraphs (blank lines).
+- **Correct Spacing for Lists:** Insert a blank line before starting any bulleted or numbered list.
+- **Bulleted Lists for Enumerations:** Use bulleted lists (\`* item\`) for multiple items.
+- **Bold for Emphasis:** Use **bold text** to highlight key terms.
+
+**EXAMPLE OUTPUT:**
+{"code_block": "function example(name, options) {\\n  // ...\\n}", "explanation": "This function \`example\` sets up a new component.\\n\\nIt accepts the following parameters:\\n\\n*   **name**: The unique identifier\\n*   **options**: Configuration object"}
+{"code_block": "const result = process(data);", "explanation": "This line processes the input data and stores the result.\\n\\n**Important:** The process function handles validation internally."}`;
+
+    return ai.models.generateContentStream({
         model: "gemini-2.5-flash",
         contents: `Analyze the following code from the file \`${fileName}\`:\n\n---\n${code}\n---`,
         config: {
-            systemInstruction: bulkSystemInstruction,
+            systemInstruction: streamingSystemInstruction,
             temperature: 0.2,
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    blocks: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                code_block: { type: Type.STRING },
-                                explanation: { type: Type.STRING }
-                            },
-                            required: ["code_block", "explanation"]
-                        }
-                    }
-                },
-                required: ["blocks"]
-            }
         }
     });
-
-    const jsonText = response.text;
-    try {
-        const parsed = JSON.parse(jsonText);
-        if (parsed && Array.isArray(parsed.blocks)) {
-            return parsed as Explanation;
-        } else {
-            console.error("Invalid JSON structure received from API:", jsonText);
-            throw new Error("Invalid JSON structure received from API.");
-        }
-    } catch (e) {
-        console.error("Failed to parse JSON response:", jsonText, e);
-        throw new Error("Failed to parse explanation from API response.");
-    }
 };
 
 
@@ -122,6 +117,7 @@ export const explainSnippetStream = (block: ExplanationBlock, fileName:string, a
     }
     const ai = new GoogleGenAI({ apiKey });
 
+    console.log(`🤖 API Call: Deep dive analysis for code block in "${fileName}" (${block.code_block.length} characters)`);
     return ai.models.generateContentStream({
         model: "gemini-2.5-flash",
         contents: `Here is the code from \`${fileName}\` that needs a deep dive:\n\n\`\`\`\n${block.code_block}\n\`\`\``,
@@ -139,6 +135,7 @@ export const generateFileSummary = async (fileName: string, code: string, apiKey
     const ai = new GoogleGenAI({ apiKey });
     const systemInstruction = `You are a helpful code assistant. Your task is to provide a very short, 2-3 sentence summary of the given code file's purpose. Focus on its main role and functionality. Do not talk about specific implementation details unless they are core to the file's identity. Do not use markdown.`;
     
+    console.log(`🤖 API Call: Generating summary for "${fileName}" (${code.length} characters)`);
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: `Summarize this file named \`${fileName}\`:\n\n---\n${code}\n---`,
@@ -149,6 +146,188 @@ export const generateFileSummary = async (fileName: string, code: string, apiKey
     });
     return response.text;
 }
+
+export const generateAllSummariesStream = async function* (files: { path: string; name: string; content: string }[], apiKey: string): AsyncGenerator<{ type: 'file_summary', path: string, summary: string } | { type: 'project_summary', summary: string } | { type: 'error', message: string }> {
+    if (!apiKey) throw new Error("Gemini API key is not configured.");
+    if (files.length === 0) return;
+
+    const ai = new GoogleGenAI({ apiKey });
+    const systemInstruction = `You are a code analysis expert. You will receive multiple files from a project and must provide individual file summaries followed by an overall project summary.
+
+**CRITICAL STREAMING FORMAT:**
+You MUST respond by streaming summaries in this exact order:
+1. First, provide individual file summaries in JSON format: {"type": "file_summary", "path": "file_path", "summary": "2-3 sentence summary"}
+2. After all file summaries, provide the project summary: {"type": "project_summary", "summary": "overall summary with paragraph breaks"}
+
+**File Summary Rules:**
+- Each file summary must be 2-3 sentences maximum
+- Focus on the file's main purpose and role
+- No markdown formatting
+- Be concise but informative
+
+**Project Summary Rules:**
+- Maximum 3 sentences total
+- Use 2-3 short paragraphs separated by blank lines
+- Synthesize the overall project purpose from all files
+- Focus on high-level architecture and goals
+
+**Example Output Format:**
+{"type": "file_summary", "path": "src/main.ts", "summary": "This is the main entry point that initializes the application. It sets up routing and starts the server."}
+{"type": "file_summary", "path": "src/utils.ts", "summary": "Contains utility functions for data processing and validation. Provides helper methods used throughout the application."}
+{"type": "project_summary", "summary": "This project is a web application backend built with TypeScript.\\n\\nIt provides REST API endpoints for data management and includes comprehensive utility functions.\\n\\nThe architecture follows modern Node.js patterns with clear separation of concerns."}
+
+**IMPORTANT:** Output each JSON object on its own line. Do not wrap in markdown or add extra formatting.`;
+
+    const filesContent = files.map(f => 
+        `=== FILE: ${f.path} ===\n${f.content}\n\n`
+    ).join('');
+    
+    console.log(`🤖 API Call: Streaming summaries for ${files.length} files (${filesContent.length} total characters)`);
+    
+    try {
+        const stream = await ai.models.generateContentStream({
+            model: "gemini-2.5-flash",
+            contents: `Analyze these project files and provide streaming summaries:\n\n${filesContent}`,
+            config: {
+                systemInstruction,
+                temperature: 0.2,
+            }
+        });
+
+        let buffer = '';
+        let fileSummariesProcessed = 0;
+        let projectSummaryProcessed = false;
+        
+        for await (const chunk of stream) {
+            if (chunk.text) {
+                buffer += chunk.text;
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep the incomplete line in buffer
+                
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine && trimmedLine.startsWith('{')) {
+                        try {
+                            const parsed = JSON.parse(trimmedLine);
+                            if (parsed.type === 'file_summary' && parsed.path && parsed.summary) {
+                                fileSummariesProcessed++;
+                                yield { type: 'file_summary', path: parsed.path, summary: parsed.summary };
+                            } else if (parsed.type === 'project_summary' && parsed.summary) {
+                                projectSummaryProcessed = true;
+                                yield { type: 'project_summary', summary: parsed.summary };
+                            }
+                        } catch (e) {
+                            // Skip invalid JSON lines
+                            console.warn('Skipping invalid JSON line:', trimmedLine);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process any remaining content in buffer
+        if (buffer.trim() && buffer.trim().startsWith('{')) {
+            try {
+                const parsed = JSON.parse(buffer.trim());
+                if (parsed.type === 'file_summary' && parsed.path && parsed.summary) {
+                    fileSummariesProcessed++;
+                    yield { type: 'file_summary', path: parsed.path, summary: parsed.summary };
+                } else if (parsed.type === 'project_summary' && parsed.summary) {
+                    projectSummaryProcessed = true;
+                    yield { type: 'project_summary', summary: parsed.summary };
+                }
+            } catch (e) {
+                console.warn('Skipping invalid JSON in buffer:', buffer.trim());
+            }
+        }
+        
+        console.log(`📊 Summary streaming completed: ${fileSummariesProcessed} file summaries, project summary: ${projectSummaryProcessed ? 'received' : 'MISSING'}`);
+        
+        // If we got file summaries but no project summary, signal completion anyway
+        if (fileSummariesProcessed > 0 && !projectSummaryProcessed) {
+            console.warn("⚠️ Project summary was not generated by streaming API");
+        }
+
+    } catch (error) {
+        console.error("Stream processing failed:", error);
+        yield { type: 'error', message: 'Failed to generate summaries due to streaming error.' };
+    }
+};
+
+export const generateAllSummaries = async (files: { path: string; name: string; content: string }[], apiKey: string): Promise<{ fileSummaries: Map<string, string>; projectSummary: string }> => {
+    if (!apiKey) throw new Error("Gemini API key is not configured.");
+    if (files.length === 0) return { fileSummaries: new Map(), projectSummary: "" };
+
+    const ai = new GoogleGenAI({ apiKey });
+    const systemInstruction = `You are a code analysis expert. You will receive multiple files from a project and must provide both individual file summaries AND an overall project summary.
+
+**CRITICAL RESPONSE FORMAT:**
+You MUST respond with a single JSON object with this exact structure:
+{
+  "file_summaries": {
+    "path1": "2-3 sentence summary of file1...",
+    "path2": "2-3 sentence summary of file2...",
+    ...
+  },
+  "project_summary": "2-3 sentence overall project summary with proper paragraph breaks..."
+}
+
+**File Summary Rules:**
+- Each file summary must be 2-3 sentences maximum
+- Focus on the file's main purpose and role
+- No markdown formatting
+- Be concise but informative
+
+**Project Summary Rules:**
+- Maximum 3 sentences total
+- Use 2-3 short paragraphs separated by blank lines
+- Synthesize the overall project purpose from all files
+- Focus on high-level architecture and goals
+
+**Example Project Summary Format:**
+This project orchestrates data pipelines within a Databricks environment.
+
+It includes utilities for determining runtime context and managing environment-specific configurations.
+
+The primary goal is to ensure consistent data job execution across dev, test, and prod stages.`;
+
+    const filesContent = files.map(f => 
+        `=== FILE: ${f.path} ===\n${f.content}\n\n`
+    ).join('');
+    
+    console.log(`🤖 API Call: Generating ALL summaries for ${files.length} files in one request (${filesContent.length} total characters)`);
+    
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Analyze these project files and provide both individual file summaries and an overall project summary:\n\n${filesContent}`,
+        config: {
+            systemInstruction,
+            temperature: 0.2,
+            responseMimeType: "application/json"
+        }
+    });
+
+    const jsonText = response.text;
+    try {
+        const parsed = JSON.parse(jsonText);
+        if (parsed && parsed.file_summaries && parsed.project_summary) {
+            const fileSummaries = new Map<string, string>();
+            Object.entries(parsed.file_summaries).forEach(([path, summary]) => {
+                fileSummaries.set(path, summary as string);
+            });
+            return {
+                fileSummaries,
+                projectSummary: parsed.project_summary
+            };
+        } else {
+            console.error("Invalid JSON structure received from API:", jsonText);
+            throw new Error("Invalid JSON structure received from API.");
+        }
+    } catch (e) {
+        console.error("Failed to parse JSON response:", jsonText, e);
+        throw new Error("Failed to parse summaries from API response.");
+    }
+};
 
 export const generateProjectSummary = async (fileSummaries: { path: string; summary: string }[], apiKey: string): Promise<string> => {
     if (!apiKey) throw new Error("Gemini API key is not configured.");
@@ -171,6 +350,7 @@ The primary goal is to ensure that data jobs run consistently across different s
 
     const summariesText = fileSummaries.map(s => `File: ${s.path}\nSummary: ${s.summary}`).join('\n\n');
     
+    console.log(`🤖 API Call: Generating project summary from ${fileSummaries.length} file summaries`);
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: `Here are the file summaries for a project:\n\n${summariesText}\n\nBased on these, what is the overall purpose of this project?`,

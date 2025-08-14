@@ -4,7 +4,7 @@ import type { FileNode, Explanation, ExplanationBlock } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 import FileExplorer, { ProcessingStatus } from './components/FileExplorer';
 import CodeExplainerView from './components/CodeExplainerView';
-import { explainFileInBulk, explainSnippetStream, generateFileSummary, generateProjectSummary } from './services/geminiService';
+import { explainFileInBulk, explainSnippetStream, generateFileSummary, generateProjectSummary, generateAllSummaries, generateAllSummariesStream } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
 import ApiKeyScreen from './components/ApiKeyScreen';
 
@@ -18,6 +18,20 @@ const getAllFiles = (node: FileNode, files: FileNode[] = []): FileNode[] => {
         }
     }
     return files;
+};
+
+// Create a simple hash for code blocks to detect duplicates
+const createBlockHash = (codeBlock: string): string => {
+    // Normalize the code block by removing extra whitespace and trimming
+    const normalized = codeBlock.trim().replace(/\s+/g, ' ');
+    // Create a simple hash (this could be improved with a proper hash function)
+    let hash = 0;
+    for (let i = 0; i < normalized.length; i++) {
+        const char = normalized.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash.toString(36);
 };
 
 interface DeepDiveStatus {
@@ -42,6 +56,9 @@ const App: React.FC = () => {
   const [processingQueue, setProcessingQueue] = useState<FileNode[]>([]);
   const [isAppLoading, setIsAppLoading] = useState<boolean>(false);
   const [deepDiveStatus, setDeepDiveStatus] = useState<DeepDiveStatus>({ file: null, blockIndex: null, isLoading: false });
+
+  // Global cache for code block explanations to avoid duplicates
+  const [globalBlockCache, setGlobalBlockCache] = useState<Map<string, string>>(new Map());
 
   // New state for summaries
   const [fileSummaries, setFileSummaries] = useState<Map<string, string>>(new Map());
@@ -73,39 +90,66 @@ const App: React.FC = () => {
       const initialStatus = new Map(files.map(f => [f.path, 'summarizing' as SummaryStatus]));
       setSummaryStatus(initialStatus);
 
-      const summaryPromises = files.map(file => 
-          generateFileSummary(file.name, file.content || '', apiKey)
-              .then(summary => ({ path: file.path, summary }))
-      );
+      try {
+          const filesWithContent = files.map(file => ({
+              path: file.path,
+              name: file.name,
+              content: file.content || ''
+          }));
 
-      const results = await Promise.allSettled(summaryPromises);
-      
-      const newSummaries = new Map<string, string>();
-      const newStatus = new Map<string, SummaryStatus>(initialStatus);
-      
-      results.forEach((result, index) => {
-          const filePath = files[index].path;
-          if (result.status === 'fulfilled') {
-              newSummaries.set(result.value.path, result.value.summary);
-              newStatus.set(filePath, 'done');
-          } else {
-              console.error(`Failed to generate summary for ${filePath}:`, result.reason);
-              newSummaries.set(filePath, 'Failed to generate summary.');
-              newStatus.set(filePath, 'done'); // Mark as done to stop spinner
+          const newSummaries = new Map<string, string>();
+          const newStatus = new Map<string, SummaryStatus>();
+          
+          // Initialize all files as summarizing
+          files.forEach(f => newStatus.set(f.path, 'summarizing'));
+          setSummaryStatus(new Map(newStatus));
+
+          // Stream summaries as they come in
+          let projectSummaryReceived = false;
+          for await (const result of generateAllSummariesStream(filesWithContent, apiKey)) {
+              if (result.type === 'file_summary') {
+                  newSummaries.set(result.path, result.summary);
+                  newStatus.set(result.path, 'done');
+                  
+                  // Update UI incrementally
+                  setFileSummaries(new Map(newSummaries));
+                  setSummaryStatus(new Map(newStatus));
+              } else if (result.type === 'project_summary') {
+                  setProjectSummary(result.summary);
+                  projectSummaryReceived = true;
+              } else if (result.type === 'error') {
+                  throw new Error(result.message);
+              }
           }
-      });
-      
-      setFileSummaries(newSummaries);
-      setSummaryStatus(newStatus);
-      
-      if(newSummaries.size > 0) {
-          try {
-              const projSummary = await generateProjectSummary(Array.from(newSummaries.entries()).map(([path, summary]) => ({path, summary})), apiKey);
-              setProjectSummary(projSummary);
-          } catch(error) {
-              console.error("Failed to generate project summary:", error);
-              setProjectSummary("Could not generate a project summary.");
+          
+          // If no project summary was received, generate a fallback one
+          if (!projectSummaryReceived && newSummaries.size > 0) {
+              console.warn("Project summary not received from streaming API, generating fallback...");
+              try {
+                  const fallbackSummary = await generateProjectSummary(
+                      Array.from(newSummaries.entries()).map(([path, summary]) => ({path, summary})), 
+                      apiKey
+                  );
+                  setProjectSummary(fallbackSummary);
+              } catch (fallbackError) {
+                  console.error("Fallback project summary also failed:", fallbackError);
+                  setProjectSummary("Unable to generate project summary.");
+              }
           }
+          
+      } catch(error) {
+          console.error("Failed to generate summaries:", error);
+          
+          // Fallback to error state
+          const newSummaries = new Map<string, string>();
+          const newStatus = new Map<string, SummaryStatus>();
+          files.forEach(f => {
+              newSummaries.set(f.path, 'Failed to generate summary.');
+              newStatus.set(f.path, 'done');
+          });
+          setFileSummaries(newSummaries);
+          setSummaryStatus(newStatus);
+          setProjectSummary("Could not generate a project summary.");
       }
 
       setIsProjectSummaryLoading(false);
@@ -132,8 +176,97 @@ const App: React.FC = () => {
     setExplanationsCache(prev => new Map(prev).set(file.path, { blocks: [] }));
 
     try {
-        const explanation = await explainFileInBulk(file.name, file.content, apiKey);
-        setExplanationsCache(prev => new Map(prev).set(file.path, explanation));
+        const stream = await explainFileInBulk(file.name, file.content, apiKey);
+        
+        let buffer = '';
+        const blocks: ExplanationBlock[] = [];
+        let duplicatesFound = 0;
+        let newExplanations = 0;
+        
+        for await (const chunk of stream) {
+            if (chunk.text) {
+                buffer += chunk.text;
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine && trimmedLine.startsWith('{')) {
+                        try {
+                            const parsed = JSON.parse(trimmedLine);
+                            if (parsed.code_block && parsed.explanation) {
+                                const blockHash = createBlockHash(parsed.code_block);
+                                let explanation = parsed.explanation;
+                                
+                                // Check if we already have an explanation for this code block
+                                const cachedExplanation = globalBlockCache.get(blockHash);
+                                if (cachedExplanation) {
+                                    explanation = cachedExplanation;
+                                    duplicatesFound++;
+                                } else {
+                                    // Cache the new explanation
+                                    setGlobalBlockCache(prev => new Map(prev).set(blockHash, explanation));
+                                    newExplanations++;
+                                }
+                                
+                                blocks.push({
+                                    code_block: parsed.code_block,
+                                    explanation: explanation
+                                });
+                                
+                                // Update UI with new block immediately
+                                setExplanationsCache(prev => {
+                                    const newCache = new Map(prev);
+                                    newCache.set(file.path, { blocks: [...blocks] });
+                                    return newCache;
+                                });
+                            }
+                        } catch (e) {
+                            console.warn('Skipping invalid JSON line:', trimmedLine);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process any remaining content in buffer
+        if (buffer.trim() && buffer.trim().startsWith('{')) {
+            try {
+                const parsed = JSON.parse(buffer.trim());
+                if (parsed.code_block && parsed.explanation) {
+                    const blockHash = createBlockHash(parsed.code_block);
+                    let explanation = parsed.explanation;
+                    
+                    const cachedExplanation = globalBlockCache.get(blockHash);
+                    if (cachedExplanation) {
+                        explanation = cachedExplanation;
+                        duplicatesFound++;
+                    } else {
+                        setGlobalBlockCache(prev => new Map(prev).set(blockHash, explanation));
+                        newExplanations++;
+                    }
+                    
+                    blocks.push({
+                        code_block: parsed.code_block,
+                        explanation: explanation
+                    });
+                    
+                    setExplanationsCache(prev => {
+                        const newCache = new Map(prev);
+                        newCache.set(file.path, { blocks: [...blocks] });
+                        return newCache;
+                    });
+                }
+            } catch (e) {
+                console.warn('Skipping invalid JSON in buffer:', buffer.trim());
+            }
+        }
+        
+        // Log cache usage stats
+        if (duplicatesFound > 0 || newExplanations > 0) {
+            console.log(`📋 Explanation cache stats for ${file.name}: ${newExplanations} new explanations, ${duplicatesFound} reused from cache`);
+        }
+        
     } catch (error) {
       console.error(`Error fetching explanation for ${file.name}:`, error);
        if (error instanceof Error) {
@@ -162,7 +295,7 @@ const App: React.FC = () => {
     } finally {
       setProcessingStatus(prev => new Map(prev).set(file.path, 'done'));
     }
-  }, [processingStatus, apiKey]);
+  }, [processingStatus, apiKey, globalBlockCache]);
 
   const handleSelectFile = useCallback((file: FileNode) => {
     if (file.path !== selectedFile?.path) {

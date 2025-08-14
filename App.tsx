@@ -4,7 +4,7 @@ import type { FileNode, Explanation, ExplanationBlock } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 import FileExplorer, { ProcessingStatus } from './components/FileExplorer';
 import CodeExplainerView from './components/CodeExplainerView';
-import { explainFileStream, explainSnippetStream } from './services/geminiService';
+import { explainFileStream, explainSnippetStream, generateFileSummary, generateProjectSummary } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
 import ApiKeyScreen from './components/ApiKeyScreen';
 
@@ -26,14 +26,14 @@ interface DeepDiveStatus {
     isLoading: boolean;
 }
 
+export type SummaryStatus = 'summarizing' | 'done';
+
 const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(() => {
-    // Prioritize the environment variable for environments like Google AI Studio
     if (process.env.API_KEY) {
         return process.env.API_KEY;
     }
-    // Fallback to local storage for user-provided keys
     return localStorage.getItem('gemini_api_key');
   });
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
@@ -43,6 +43,11 @@ const App: React.FC = () => {
   const [isAppLoading, setIsAppLoading] = useState<boolean>(false);
   const [deepDiveStatus, setDeepDiveStatus] = useState<DeepDiveStatus>({ file: null, blockIndex: null, isLoading: false });
 
+  // New state for summaries
+  const [fileSummaries, setFileSummaries] = useState<Map<string, string>>(new Map());
+  const [projectSummary, setProjectSummary] = useState<string>('');
+  const [summaryStatus, setSummaryStatus] = useState<Map<string, SummaryStatus>>(new Map());
+  const [isProjectSummaryLoading, setIsProjectSummaryLoading] = useState<boolean>(false);
 
   const currentExplanation = useMemo(() => {
     if (!selectedFile) return null;
@@ -57,16 +62,66 @@ const App: React.FC = () => {
   const isProcessingQueueActive = processingQueue.length > 0 || Array.from(processingStatus.values()).some(s => s === 'processing');
 
   const handleApiKeySubmit = (newApiKey: string) => {
+    localStorage.setItem('gemini_api_key', newApiKey);
     setApiKey(newApiKey);
   };
 
-  const handleProjectReady = (rootNode: FileNode) => {
+  const generateSummaries = useCallback(async (files: FileNode[]) => {
+      if (files.length === 0 || !apiKey) return;
+      
+      setIsProjectSummaryLoading(true);
+      const initialStatus = new Map(files.map(f => [f.path, 'summarizing' as SummaryStatus]));
+      setSummaryStatus(initialStatus);
+
+      const summaryPromises = files.map(file => 
+          generateFileSummary(file.name, file.content || '', apiKey)
+              .then(summary => ({ path: file.path, summary }))
+      );
+
+      const results = await Promise.allSettled(summaryPromises);
+      
+      const newSummaries = new Map<string, string>();
+      const newStatus = new Map<string, SummaryStatus>(initialStatus);
+      
+      results.forEach((result, index) => {
+          const filePath = files[index].path;
+          if (result.status === 'fulfilled') {
+              newSummaries.set(result.value.path, result.value.summary);
+              newStatus.set(filePath, 'done');
+          } else {
+              console.error(`Failed to generate summary for ${filePath}:`, result.reason);
+              newSummaries.set(filePath, 'Failed to generate summary.');
+              newStatus.set(filePath, 'done'); // Mark as done to stop spinner
+          }
+      });
+      
+      setFileSummaries(newSummaries);
+      setSummaryStatus(newStatus);
+      
+      if(newSummaries.size > 0) {
+          try {
+              const projSummary = await generateProjectSummary(Array.from(newSummaries.entries()).map(([path, summary]) => ({path, summary})), apiKey);
+              setProjectSummary(projSummary);
+          } catch(error) {
+              console.error("Failed to generate project summary:", error);
+              setProjectSummary("Could not generate a project summary.");
+          }
+      }
+
+      setIsProjectSummaryLoading(false);
+
+  }, [apiKey]);
+  
+  const handleProjectReady = useCallback((rootNode: FileNode) => {
     setFileTree(rootNode);
     const allFiles = getAllFiles(rootNode);
-    if(allFiles.length > 0) {
-        handleSelectFile(allFiles[0]);
+    if (allFiles.length > 0) {
+      generateSummaries(allFiles);
+      if (allFiles.length === 1) {
+        setSelectedFile(allFiles[0]);
+      }
     }
-  };
+  }, [generateSummaries]);
 
  const streamAndCacheExplanation = useCallback(async (file: FileNode) => {
     if (!file.content || !apiKey || processingStatus.get(file.path) === 'done' || processingStatus.get(file.path) === 'processing') {
@@ -103,16 +158,14 @@ const App: React.FC = () => {
                     const markerIndex = buffer.indexOf(EXPLANATION_MARKER);
                     if (markerIndex === -1) break;
                     
-                    let codeContent = buffer.slice(0, markerIndex);
-                    // The model is told to put a newline after ---CODE---. Let's remove that one.
-                    if (codeContent.startsWith('\n')) {
-                        codeContent = codeContent.substring(1);
+                    let codeBlock = buffer.slice(0, markerIndex);
+                    if (codeBlock.startsWith('\n')) {
+                        codeBlock = codeBlock.substring(1);
                     }
-                    // And it might add a newline before ---EXPLANATION---. Let's remove that one too.
-                    if (codeContent.endsWith('\n')) {
-                        codeContent = codeContent.slice(0, -1);
+                    if (codeBlock.endsWith('\n')) {
+                        codeBlock = codeBlock.slice(0, -1);
                     }
-                    currentCodeBlock = codeContent;
+                    currentCodeBlock = codeBlock;
                     
                     if (currentCodeBlock) {
                         setExplanationsCache(prev => {
@@ -133,24 +186,32 @@ const App: React.FC = () => {
                     const nextCodeMarkerIndex = buffer.indexOf(CODE_MARKER);
                     
                     if (nextCodeMarkerIndex === -1) {
-                        const explanationChunk = buffer;
-                        buffer = '';
+                        // To avoid consuming a marker that is split across chunks, we leave
+                        // a small part of the buffer unprocessed. This prevents a partial marker
+                        // from being treated as explanation text.
+                        const unconsumedBufferLength = CODE_MARKER.length - 1;
+                        const processableLength = Math.max(0, buffer.length - unconsumedBufferLength);
+                        
+                        if (processableLength > 0) {
+                            const explanationChunk = buffer.substring(0, processableLength);
+                            buffer = buffer.substring(processableLength);
 
-                        if (explanationChunk) {
-                             setExplanationsCache(prev => {
-                                const newCache = new Map(prev);
-                                const currentExpl = newCache.get(file.path);
-                                if (!currentExpl || currentExpl.blocks.length === 0) return prev;
-                                
-                                const newBlocks = [...currentExpl.blocks];
-                                const lastBlock = newBlocks[newBlocks.length - 1];
-                                newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: lastBlock.explanation + explanationChunk };
-                                newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
-                                return newCache;
-                            });
-                            madeProgress = true;
+                            if (explanationChunk) {
+                                setExplanationsCache(prev => {
+                                    const newCache = new Map(prev);
+                                    const currentExpl = newCache.get(file.path);
+                                    if (!currentExpl || currentExpl.blocks.length === 0) return prev;
+                                    
+                                    const newBlocks = [...currentExpl.blocks];
+                                    const lastBlock = newBlocks[newBlocks.length - 1];
+                                    newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: lastBlock.explanation + explanationChunk };
+                                    newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
+                                    return newCache;
+                                });
+                            }
                         }
-                        break; 
+                        // Break and wait for the next chunk to resolve the remainder of the buffer
+                        break;
                     } else {
                         const explanationChunk = buffer.slice(0, nextCodeMarkerIndex);
                         
@@ -162,7 +223,7 @@ const App: React.FC = () => {
                                 
                                 const newBlocks = [...currentExpl.blocks];
                                 const lastBlock = newBlocks[newBlocks.length - 1];
-                                newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: (lastBlock.explanation + explanationChunk).trim() };
+                                newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: lastBlock.explanation + explanationChunk };
                                 newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
                                 return newCache;
                             });
@@ -177,32 +238,26 @@ const App: React.FC = () => {
         };
 
         for await (const chunk of stream) {
+            console.log('[GEMINI RAW CHUNK]:', chunk.text);
             buffer += chunk.text;
             processBuffer();
         }
         
-        if (buffer) {
-            let finalExplanationChunk = buffer;
-            const finalCodeMarkerIndex = buffer.indexOf(CODE_MARKER);
-            if (finalCodeMarkerIndex !== -1) {
-                finalExplanationChunk = buffer.slice(0, finalCodeMarkerIndex);
-            }
-
-            finalExplanationChunk = finalExplanationChunk.trim();
-
-            if (finalExplanationChunk) {
-                 setExplanationsCache(prev => {
-                    const newCache = new Map(prev);
-                    const currentExpl = newCache.get(file.path);
-                    if (!currentExpl || currentExpl.blocks.length === 0) return prev;
-                    
-                    const newBlocks = [...currentExpl.blocks];
-                    const lastBlock = newBlocks[newBlocks.length - 1];
-                    newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: (lastBlock.explanation + finalExplanationChunk).trim() };
-                    newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
-                    return newCache;
-                });
-            }
+        // Process any remaining text in the buffer after the stream ends.
+        let finalChunk = buffer;
+        buffer = '';
+        if (finalChunk) {
+             setExplanationsCache(prev => {
+                const newCache = new Map(prev);
+                const currentExpl = newCache.get(file.path);
+                if (!currentExpl || currentExpl.blocks.length === 0) return prev;
+                
+                const newBlocks = [...currentExpl.blocks];
+                const lastBlock = newBlocks[newBlocks.length - 1];
+                newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: lastBlock.explanation + finalChunk };
+                newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
+                return newCache;
+            });
         }
 
     } catch (error) {
@@ -220,13 +275,24 @@ const App: React.FC = () => {
             });
 
             if (!isEnvKey) {
-                // Clear invalid user-provided API key and force re-entry
                 localStorage.removeItem('gemini_api_key');
                 setApiKey(null);
             }
        }
     } finally {
       setProcessingStatus(prev => new Map(prev).set(file.path, 'done'));
+      setExplanationsCache(prev => {
+        const newCache = new Map(prev);
+        const expl = newCache.get(file.path);
+        if (expl) {
+            const cleanedBlocks = expl.blocks.map(block => ({
+                ...block,
+                explanation: block.explanation.trim(),
+            }));
+            newCache.set(file.path, { ...expl, blocks: cleanedBlocks });
+        }
+        return newCache;
+      });
     }
   }, [processingStatus, apiKey]);
 
@@ -268,6 +334,7 @@ const App: React.FC = () => {
           });
 
           for await (const chunk of stream) {
+              console.log('[DEEP DIVE RAW CHUNK]:', chunk.text);
               setExplanationsCache(prev => {
                   const newCache = new Map(prev);
                   const currentExpl = newCache.get(selectedFile.path);
@@ -351,6 +418,10 @@ const App: React.FC = () => {
           onProcessAll={handleProcessAll}
           processingStatus={processingStatus}
           isProcessingQueueActive={isProcessingQueueActive}
+          fileSummaries={fileSummaries}
+          summaryStatus={summaryStatus}
+          projectSummary={projectSummary}
+          isProjectSummaryLoading={isProjectSummaryLoading}
         />
       </aside>
 
@@ -365,8 +436,8 @@ const App: React.FC = () => {
                 deepDiveStatus={deepDiveStatus}
             />
         ) : (
-            <div className="flex items-center justify-center h-full text-gray-600">
-                <p>Select a file from the explorer to begin.</p>
+            <div className="flex items-center justify-center h-full text-gray-600 p-8 text-center">
+                <p>Select a file from the explorer to begin analysis.<br/>You can hover over files to see a brief summary.</p>
             </div>
         )}
       </main>

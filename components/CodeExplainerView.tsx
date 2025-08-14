@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // @ts-ignore
@@ -23,25 +23,6 @@ interface CodeExplainerViewProps {
   };
 }
 
-const customCodeStyle = {
-  ...atomDark,
-  'pre[class*="language-"]': {
-    ...atomDark['pre[class*="language-"]'],
-    background: 'transparent',
-    margin: 0,
-    padding: '1em',
-    overflow: 'visible' as const,
-    borderRadius: 0,
-  },
-  'code[class*="language-"]': {
-    ...atomDark['code[class*="language-"]'],
-    fontFamily: "'Fira Code', monospace",
-    fontSize: '14px',
-    whiteSpace: 'pre-wrap' as const,
-    wordBreak: 'break-all' as const,
-  },
-};
-
 const getLanguage = (filename: string): string => {
   const extension = filename.split('.').pop()?.toLowerCase();
   switch (extension) {
@@ -57,89 +38,57 @@ const getLanguage = (filename: string): string => {
   }
 };
 
-interface CodeSegment {
-    type: 'unexplained' | 'explained';
-    content: string;
-    explanation?: string;
-    deep_dive_explanation?: string;
-    blockIndex?: number;
-}
+const findBlock = (source: string, blockFromAI: string, startIndex: number): { index: number; content: string } | null => {
+    if (!blockFromAI) return null;
+
+    // Attempt a direct match first. This is the most common case (Unix/Mac files).
+    let index = source.indexOf(blockFromAI, startIndex);
+    if (index !== -1) {
+        return { index, content: blockFromAI };
+    }
+    
+    // If direct match fails, it might be due to line-ending differences (\n vs \r\n).
+    // The AI will use \n. The source file might have \r\n (e.g., from Windows).
+    const blockWithCRLF = blockFromAI.replace(/\n/g, '\r\n');
+
+    if (blockWithCRLF !== blockFromAI) {
+        index = source.indexOf(blockWithCRLF, startIndex);
+        if (index !== -1) {
+            // We found a match. The content we use for segmentation must be the
+            // version we found in the source, so that `lastIndex` is updated correctly.
+            return { index, content: blockWithCRLF };
+        }
+    }
+    return null;
+};
+
 
 const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLoading, fileName, code, onDeepDive, deepDiveStatus }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [hoverSource, setHoverSource] = useState<'left' | 'right' | null>(null);
   
-  const leftPaneRef = useRef<HTMLDivElement>(null);
   const rightPaneRef = useRef<HTMLDivElement>(null);
   const streamingIndicatorRef = useRef<HTMLDivElement>(null);
 
-  const codeBlockRefs = useRef<(HTMLDivElement | null)[]>([]);
   const explanationRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const lineRefs = useRef<(HTMLElement | null)[]>([]);
 
   useEffect(() => {
     const blockCount = explanation?.blocks.length ?? 0;
     explanationRefs.current = explanationRefs.current.slice(0, blockCount);
-    codeBlockRefs.current = codeBlockRefs.current.slice(0, blockCount);
   }, [explanation]);
 
   const scrollOptions: ScrollIntoViewOptions = {
     behavior: 'smooth',
     block: 'center',
+    inline: 'nearest',
   };
+  
+  const lineMetadata = useMemo(() => {
+    const metadata = new Map<number, { blockIndex: number }>();
+    if (!explanation || !code) return metadata;
 
-  const segments = useMemo((): CodeSegment[] => {
-    if (!code) {
-        return [];
-    }
-    if (!explanation || explanation.blocks.length === 0) {
-        return [{ type: 'unexplained', content: code }];
-    }
-
-    const newSegments: CodeSegment[] = [];
     let lastIndex = 0;
-
-    /**
-     * Finds a block of code from the AI within the source code, tolerating whitespace differences.
-     * @param source The full source code.
-     * @param blockFromAI The potentially altered code block from the AI.
-     * @param startIndex The index in the source to start searching from.
-     * @returns An object with the found index and the verbatim content from the source, or null if not found.
-     */
-    const findBlock = (source: string, blockFromAI: string, startIndex: number): { index: number; content: string } | null => {
-        if (!blockFromAI.trim()) return null;
-
-        // Attempt 1: Exact match first, as it's fastest and most reliable.
-        let index = source.indexOf(blockFromAI, startIndex);
-        if (index !== -1) {
-            return { index, content: blockFromAI };
-        }
-
-        // Attempt 2: Regex match to tolerate missing empty lines and whitespace changes.
-        // This is more robust against AI formatting changes.
-        const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        
-        // Get non-empty, trimmed lines from the AI's version of the block.
-        const aiLines = blockFromAI.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-        
-        if (aiLines.length === 0) return null;
-
-        // Create a regex pattern that looks for these lines in order, separated by any amount of whitespace.
-        const pattern = aiLines.map(escapeRegex).join('\\s+');
-        const regex = new RegExp(pattern);
-
-        const sourceToSearch = source.substring(startIndex);
-        const match = sourceToSearch.match(regex);
-        
-        if (match && typeof match.index !== 'undefined') {
-            return {
-                index: startIndex + match.index,
-                content: match[0], // This is the crucial part: we return the verbatim content from the source.
-            };
-        }
-
-        return null;
-    };
-
     explanation.blocks.forEach((block, blockIndex) => {
         const blockContentFromAI = block.code_block;
         if (!blockContentFromAI) return;
@@ -148,46 +97,43 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
         
         if (!match) {
             console.warn("Could not find code block in source. View might be inaccurate.", { block: blockContentFromAI });
-            // Don't add this block and continue with the next one.
-            // The un-matched code will be rendered as 'unexplained'.
             return;
         }
 
         const { index: currentIndex, content: verbatimContent } = match;
 
-        // Add any code between the last match and this one as "unexplained".
-        if (currentIndex > lastIndex) {
-            newSegments.push({
-                type: 'unexplained',
-                content: code.substring(lastIndex, currentIndex),
-            });
+        const startLine = (code.substring(0, currentIndex).match(/\n/g) || []).length + 1;
+        const numLines = (verbatimContent.match(/\n/g) || []).length;
+        const endLine = startLine + numLines;
+
+        for (let i = startLine; i <= endLine; i++) {
+            metadata.set(i, { blockIndex });
         }
 
-        // Add the matched block as "explained".
-        newSegments.push({
-            type: 'explained',
-            content: verbatimContent, // Use the verbatim content for rendering
-            explanation: block.explanation,
-            deep_dive_explanation: block.deep_dive_explanation,
-            blockIndex: blockIndex,
-        });
-
-        // Update the starting point for the next search.
         lastIndex = currentIndex + verbatimContent.length;
     });
 
-    // Add any remaining code at the end of the file as "unexplained".
-    if (lastIndex < code.length) {
-        newSegments.push({
-            type: 'unexplained',
-            content: code.substring(lastIndex),
-        });
-    }
-
-    return newSegments;
+    return metadata;
   }, [code, explanation]);
 
-  const explanationSegments = useMemo(() => segments.filter(s => s.type === 'explained'), [segments]);
+  const blockStartLines = useMemo(() => {
+    const map = new Map<number, number>();
+    if (!lineMetadata) return map;
+    
+    const seenBlocks = new Set<number>();
+    for (const [line, meta] of lineMetadata.entries()) {
+        if (!seenBlocks.has(meta.blockIndex)) {
+            map.set(meta.blockIndex, line);
+            seenBlocks.add(meta.blockIndex);
+        }
+    }
+    return map;
+  }, [lineMetadata]);
+  
+  const explanationSegments = useMemo(() => explanation?.blocks.map((block, index) => ({
+      ...block,
+      blockIndex: index,
+  })) ?? [], [explanation]);
 
   useEffect(() => {
     if (hoverSource === 'left' && hoveredIndex !== null && rightPaneRef.current) {
@@ -196,10 +142,13 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
   }, [hoveredIndex, hoverSource]);
 
   useEffect(() => {
-    if (hoverSource === 'right' && hoveredIndex !== null && leftPaneRef.current) {
-        codeBlockRefs.current[hoveredIndex]?.scrollIntoView(scrollOptions);
+    if (hoverSource === 'right' && hoveredIndex !== null) {
+        const startLine = blockStartLines.get(hoveredIndex);
+        if (startLine) {
+            lineRefs.current[startLine]?.scrollIntoView(scrollOptions);
+        }
     }
-  }, [hoveredIndex, hoverSource]);
+  }, [hoveredIndex, hoverSource, blockStartLines]);
 
   useEffect(() => {
     const pane = rightPaneRef.current;
@@ -213,40 +162,63 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
   }, [explanation?.blocks.length, isLoading, explanationSegments.length]);
 
   const language = getLanguage(fileName);
-  
   const showInitialLoading = isLoading && (!explanation || explanation.blocks.length === 0);
+
+   const customCodeStyle = {
+      ...atomDark,
+      'pre[class*="language-"]': {
+          ...(atomDark['pre[class*="language-"]'] || {}),
+          background: 'transparent',
+          margin: 0,
+          padding: '1em 0',
+          whiteSpace: 'pre',
+          overflowX: 'auto',
+      },
+      'code[class*="language-"]': {
+          ...(atomDark['code[class*="language-"]'] || {}),
+          fontFamily: "'Fira Code', monospace",
+          fontSize: '14px',
+          whiteSpace: 'pre',
+      },
+  } as { [key: string]: CSSProperties };
+
+  const lineProps = (lineNumber: number): React.HTMLProps<HTMLElement> => {
+      const meta = lineMetadata.get(lineNumber);
+      const style: CSSProperties = { display: 'block', width: '100%', transition: 'background-color 0.2s' };
+
+      if (!meta) {
+          style.opacity = 0.5;
+          return { style };
+      }
+
+      const blockIndex = meta.blockIndex;
+      const isHovered = hoveredIndex === blockIndex;
+
+      if (isHovered) {
+          style.backgroundColor = 'rgba(65, 72, 104, 0.5)'; // gray-700 with opacity
+      }
+      
+      return {
+          ref: (el) => { if (el) lineRefs.current[lineNumber] = el; },
+          style,
+          onMouseEnter: () => { setHoverSource('left'); setHoveredIndex(blockIndex); },
+          onMouseLeave: () => { setHoverSource(null); setHoveredIndex(null); },
+      };
+  };
 
   return (
     <div className="grid grid-cols-2 h-full font-mono">
-      <div ref={leftPaneRef} className="col-span-1 h-full overflow-y-auto bg-gray-900">
-        <div className="p-4">
-          {segments.map((segment, index) => {
-             if (segment.type === 'unexplained') {
-                return (
-                    <div key={`unexplained-${index}`} className="opacity-40">
-                        <SyntaxHighlighter language={language} style={customCodeStyle} PreTag="div">
-                            {segment.content}
-                        </SyntaxHighlighter>
-                    </div>
-                );
-            }
-            // Explained block
-            const blockIndex = segment.blockIndex!;
-            return (
-                <div
-                    key={`explained-${blockIndex}`}
-                    ref={el => { if(typeof blockIndex === 'number') codeBlockRefs.current[blockIndex] = el; }}
-                    onMouseEnter={() => { setHoverSource('left'); setHoveredIndex(blockIndex); }}
-                    onMouseLeave={() => { setHoverSource(null); setHoveredIndex(null); }}
-                    className={`rounded-lg transition-colors duration-200 border border-transparent ${hoveredIndex === blockIndex ? 'bg-gray-800' : ''}`}
-                >
-                    <SyntaxHighlighter language={language} style={customCodeStyle} PreTag="div">
-                        {segment.content}
-                    </SyntaxHighlighter>
-                </div>
-            );
-          })}
-        </div>
+      <div className="col-span-1 h-full overflow-auto bg-gray-900">
+        <SyntaxHighlighter
+            language={language}
+            style={customCodeStyle}
+            showLineNumbers
+            wrapLines={true}
+            lineProps={lineProps}
+            PreTag="div"
+        >
+            {code}
+        </SyntaxHighlighter>
       </div>
       
       <div ref={rightPaneRef} className="col-span-1 h-full overflow-y-auto bg-gray-800 border-l border-gray-700">
@@ -265,10 +237,10 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
             )}
 
             {explanationSegments.map((segment, explainerIndex) => {
-               const blockIndex = segment.blockIndex!;
+               const blockIndex = segment.blockIndex;
                const isDeepDiving = deepDiveStatus.isLoading && deepDiveStatus.blockIndex === blockIndex;
                const blockExplanation = segment.explanation || '';
-               const hasExplanationStreamed = isLoading && explanationSegments.length === (explanation?.blocks?.length || 0);
+               const hasExplanationStreamed = isLoading && explainerIndex === (explanation?.blocks?.length ?? 0) -1;
 
                return (
                  <div
@@ -278,9 +250,9 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                     onMouseLeave={() => { setHoverSource(null); setHoveredIndex(null); }}
                     className={`group p-4 rounded-lg transition-all duration-300 border ${hoveredIndex === blockIndex ? 'bg-gray-700/50 border-blue-accent/50' : 'bg-transparent border-transparent'}`}
                  >
-                    <div className="prose prose-invert max-w-none prose-sm prose-p:text-blue-light prose-p:mb-4 prose-headings:text-cyan-accent prose-strong:text-orange-accent prose-code:text-orange-accent prose-code:before:content-[''] prose-code:after:content-[''] prose-li:text-blue-light prose-ul:list-disc prose-ul:pl-5 prose-ol:list-decimal prose-ol:pl-5">
+                    <div className="prose prose-invert max-w-none prose-sm prose-p:text-blue-light prose-p:mb-6 prose-headings:text-cyan-accent prose-strong:text-orange-accent prose-code:text-orange-accent prose-code:before:content-[''] prose-code:after:content-[''] prose-li:text-blue-light prose-li:my-3 prose-ul:my-6 prose-ol:my-6">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{blockExplanation.trim()}</ReactMarkdown>
-                      {hasExplanationStreamed && explainerIndex === explanationSegments.length - 1 && <span className="inline-block w-2 h-4 bg-blue-light animate-pulse ml-1"></span>}
+                      {hasExplanationStreamed && <span className="inline-block w-2 h-4 bg-blue-light animate-pulse ml-1"></span>}
                     </div>
                     <div className="mt-3">
                         {segment.deep_dive_explanation ? (
@@ -289,7 +261,7 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                                     <SparklesIcon className="w-4 h-4 mr-2" />
                                     Deep Dive
                                 </h4>
-                                <div className="prose prose-invert max-w-none prose-sm prose-p:text-blue-light/90 prose-strong:text-orange-accent prose-li:text-blue-light prose-ul:list-disc prose-ul:pl-5 prose-ol:list-decimal prose-ol:pl-5">
+                                <div className="prose prose-invert max-w-none prose-sm prose-p:text-blue-light/90 prose-p:mb-6 prose-strong:text-orange-accent prose-li:text-blue-light prose-li:my-3 prose-ul:my-6 prose-ol:my-6">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.deep_dive_explanation}</ReactMarkdown>
                                     {isDeepDiving && <span className="inline-block w-2 h-4 bg-blue-light animate-pulse ml-1"></span>}
                                 </div>

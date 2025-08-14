@@ -18,6 +18,7 @@ interface FileExplorerProps {
   onProcessAll: () => void;
   processingStatus: Map<string, ProcessingStatus>;
   isProcessingQueueActive: boolean;
+  processingQueueLength: number;
   remainingFilesToProcess: number;
   fileSummaries: Map<string, string>;
   summaryStatus: Map<string, SummaryStatus>;
@@ -120,19 +121,30 @@ const FileExplorerContent: React.FC<FileExplorerContentProps> = ({ node, selecte
 }
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
-    const { node, selectedFile, onSelectFile, onProcessAll, processingStatus, isProcessingQueueActive, remainingFilesToProcess, fileSummaries, summaryStatus, projectSummary, isProjectSummaryLoading } = props;
+    const { node, selectedFile, onSelectFile, onProcessAll, processingStatus, isProcessingQueueActive, processingQueueLength, remainingFilesToProcess, fileSummaries, summaryStatus, projectSummary, isProjectSummaryLoading } = props;
     
     const getButtonText = () => {
-        if (isProcessingQueueActive) {
-            return remainingFilesToProcess > 0 ? `Analyzing... (${remainingFilesToProcess} left)` : 'Analyzing...';
-        }
-        
         if (remainingFilesToProcess === 0) {
             return 'All Files Analyzed';
         }
         
+        // True queue processing means there are files actually in the processing queue
+        const hasActiveQueue = processingQueueLength > 0;
+        
+        if (hasActiveQueue) {
+            // Queue is active (multiple files being processed via queue)
+            return `Processing... (${remainingFilesToProcess} left)`;
+        }
+        
+        // Check if any single file is being processed (but no queue)
+        const isSingleFileProcessing = Array.from(processingStatus.values()).some(s => s === 'processing');
+        
+        if (isSingleFileProcessing && remainingFilesToProcess > 1) {
+            return `Queue ${remainingFilesToProcess} Remaining Files`;
+        }
+        
         if (remainingFilesToProcess === 1) {
-            return 'Analyze Last File';
+            return isSingleFileProcessing ? 'Queue Last File' : 'Analyze Last File';
         }
         
         return `Analyze ${remainingFilesToProcess} Files`;
@@ -161,11 +173,11 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
                 </div>
                 <button
                     onClick={onProcessAll}
-                    disabled={isProcessingQueueActive || remainingFilesToProcess === 0}
+                    disabled={remainingFilesToProcess === 0}
                     className={`w-full font-bold py-2 px-4 rounded-lg transition-all duration-300 text-sm flex items-center justify-center space-x-2 ${
                         remainingFilesToProcess === 0 
                             ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
-                            : 'bg-green-accent hover:bg-opacity-80 text-gray-900 disabled:bg-gray-600 disabled:cursor-not-allowed'
+                            : 'bg-green-accent hover:bg-opacity-80 text-gray-900'
                     }`}
                 >
                     {isProcessingQueueActive ? <SpinnerIcon className="w-4 h-4" /> : null}

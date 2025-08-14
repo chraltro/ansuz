@@ -2,6 +2,22 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Explanation, ExplanationBlock } from "../types";
 
+// Constants
+const MODEL_NAME = "gemini-2.5-flash";
+const FILE_LIMIT = 25;
+
+// Common utility functions
+const validateApiKey = (apiKey: string) => {
+    if (!apiKey) {
+        throw new Error("Gemini API key is not configured.");
+    }
+};
+
+const createAI = (apiKey: string) => {
+    validateApiKey(apiKey);
+    return new GoogleGenAI({ apiKey });
+};
+
 const bulkSystemInstruction = `You are an expert software engineer acting as a code tutor. Your task is to analyze the provided code and generate concise, block-by-block explanations in a single JSON object.
 
 **CRITICAL RESPONSE FORMAT RULES:**
@@ -30,10 +46,7 @@ const bulkSystemInstruction = `You are an expert software engineer acting as a c
 `;
 
 export const explainFileInBulk = (fileName: string, code: string, apiKey: string) => {
-    if (!apiKey) {
-      throw new Error("Gemini API key is not configured.");
-    }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = createAI(apiKey);
   
     if (!code.trim()) {
       return Promise.resolve({ blocks: [{ code_block: "// This file is empty.", explanation: "There is no code in this file to analyze." }]});
@@ -67,7 +80,7 @@ You MUST respond by streaming explanations as individual JSON objects, one per l
 {"code_block": "const result = process(data);", "explanation": "This line processes the input data and stores the result.\\n\\n**Important:** The process function handles validation internally."}`;
 
     return ai.models.generateContentStream({
-        model: "gemini-2.5-flash",
+        model: MODEL_NAME,
         contents: `Analyze the following code from the file \`${fileName}\`:\n\n---\n${code}\n---`,
         config: {
             systemInstruction: streamingSystemInstruction,
@@ -112,14 +125,11 @@ Your task is to provide a "deep dive" analysis. Focus on the "why" and "how else
 
 
 export const explainSnippetStream = (block: ExplanationBlock, fileName:string, apiKey: string) => {
-    if (!apiKey) {
-      throw new Error("Gemini API key is not configured.");
-    }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = createAI(apiKey);
 
     console.log(`🤖 API Call: Deep dive analysis for code block in "${fileName}" (${block.code_block.length} characters)`);
     return ai.models.generateContentStream({
-        model: "gemini-2.5-flash",
+        model: MODEL_NAME,
         contents: `Here is the code from \`${fileName}\` that needs a deep dive:\n\n\`\`\`\n${block.code_block}\n\`\`\``,
         config: {
             systemInstruction: deepDiveSystemInstruction.replace('{original_explanation}', block.explanation),
@@ -128,30 +138,11 @@ export const explainSnippetStream = (block: ExplanationBlock, fileName:string, a
     });
 };
 
-export const generateFileSummary = async (fileName: string, code: string, apiKey: string): Promise<string> => {
-    if (!apiKey) throw new Error("Gemini API key is not configured.");
-    if (!code.trim()) return "This file is empty.";
-
-    const ai = new GoogleGenAI({ apiKey });
-    const systemInstruction = `You are a helpful code assistant. Your task is to provide a very short, 2-3 sentence summary of the given code file's purpose. Focus on its main role and functionality. Do not talk about specific implementation details unless they are core to the file's identity. Do not use markdown.`;
-    
-    console.log(`🤖 API Call: Generating summary for "${fileName}" (${code.length} characters)`);
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Summarize this file named \`${fileName}\`:\n\n---\n${code}\n---`,
-        config: {
-            systemInstruction,
-            temperature: 0.1,
-        }
-    });
-    return response.text;
-}
 
 export const generateAllSummariesStream = async function* (files: { path: string; name: string; content: string }[], apiKey: string): AsyncGenerator<{ type: 'file_summary', path: string, summary: string } | { type: 'project_summary', summary: string } | { type: 'error', message: string }> {
-    if (!apiKey) throw new Error("Gemini API key is not configured.");
     if (files.length === 0) return;
-
-    const ai = new GoogleGenAI({ apiKey });
+    
+    const ai = createAI(apiKey);
     const systemInstruction = `You are a code analysis expert. You will receive multiple files from a project and must provide individual file summaries followed by an overall project summary.
 
 **CRITICAL STREAMING FORMAT:**
@@ -186,7 +177,7 @@ You MUST respond by streaming summaries in this exact order:
     
     try {
         const stream = await ai.models.generateContentStream({
-            model: "gemini-2.5-flash",
+            model: MODEL_NAME,
             contents: `Analyze these project files and provide streaming summaries:\n\n${filesContent}`,
             config: {
                 systemInstruction,
@@ -254,86 +245,11 @@ You MUST respond by streaming summaries in this exact order:
     }
 };
 
-export const generateAllSummaries = async (files: { path: string; name: string; content: string }[], apiKey: string): Promise<{ fileSummaries: Map<string, string>; projectSummary: string }> => {
-    if (!apiKey) throw new Error("Gemini API key is not configured.");
-    if (files.length === 0) return { fileSummaries: new Map(), projectSummary: "" };
-
-    const ai = new GoogleGenAI({ apiKey });
-    const systemInstruction = `You are a code analysis expert. You will receive multiple files from a project and must provide both individual file summaries AND an overall project summary.
-
-**CRITICAL RESPONSE FORMAT:**
-You MUST respond with a single JSON object with this exact structure:
-{
-  "file_summaries": {
-    "path1": "2-3 sentence summary of file1...",
-    "path2": "2-3 sentence summary of file2...",
-    ...
-  },
-  "project_summary": "2-3 sentence overall project summary with proper paragraph breaks..."
-}
-
-**File Summary Rules:**
-- Each file summary must be 2-3 sentences maximum
-- Focus on the file's main purpose and role
-- No markdown formatting
-- Be concise but informative
-
-**Project Summary Rules:**
-- Maximum 3 sentences total
-- Use 2-3 short paragraphs separated by blank lines
-- Synthesize the overall project purpose from all files
-- Focus on high-level architecture and goals
-
-**Example Project Summary Format:**
-This project orchestrates data pipelines within a Databricks environment.
-
-It includes utilities for determining runtime context and managing environment-specific configurations.
-
-The primary goal is to ensure consistent data job execution across dev, test, and prod stages.`;
-
-    const filesContent = files.map(f => 
-        `=== FILE: ${f.path} ===\n${f.content}\n\n`
-    ).join('');
-    
-    console.log(`🤖 API Call: Generating ALL summaries for ${files.length} files in one request (${filesContent.length} total characters)`);
-    
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Analyze these project files and provide both individual file summaries and an overall project summary:\n\n${filesContent}`,
-        config: {
-            systemInstruction,
-            temperature: 0.2,
-            responseMimeType: "application/json"
-        }
-    });
-
-    const jsonText = response.text;
-    try {
-        const parsed = JSON.parse(jsonText);
-        if (parsed && parsed.file_summaries && parsed.project_summary) {
-            const fileSummaries = new Map<string, string>();
-            Object.entries(parsed.file_summaries).forEach(([path, summary]) => {
-                fileSummaries.set(path, summary as string);
-            });
-            return {
-                fileSummaries,
-                projectSummary: parsed.project_summary
-            };
-        } else {
-            console.error("Invalid JSON structure received from API:", jsonText);
-            throw new Error("Invalid JSON structure received from API.");
-        }
-    } catch (e) {
-        console.error("Failed to parse JSON response:", jsonText, e);
-        throw new Error("Failed to parse summaries from API response.");
-    }
-};
 
 export const generateProjectSummary = async (fileSummaries: { path: string; summary: string }[], apiKey: string): Promise<string> => {
-    if (!apiKey) throw new Error("Gemini API key is not configured.");
     if (fileSummaries.length === 0) return "";
-
-    const ai = new GoogleGenAI({ apiKey });
+    
+    const ai = createAI(apiKey);
     const systemInstruction = `You are a project architect. You will be given a list of files and their individual summaries. Your task is to synthesize these into a single, high-level project summary.
 
 **Formatting Rules:**
@@ -352,7 +268,7 @@ The primary goal is to ensure that data jobs run consistently across different s
     
     console.log(`🤖 API Call: Generating project summary from ${fileSummaries.length} file summaries`);
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: MODEL_NAME,
         contents: `Here are the file summaries for a project:\n\n${summariesText}\n\nBased on these, what is the overall purpose of this project?`,
         config: {
             systemInstruction,

@@ -2,6 +2,8 @@
 import React, { useRef, useState } from 'react';
 import type { FileNode } from '../types';
 
+const FILE_LIMIT = 25;
+
 interface WelcomeScreenProps {
   onProjectReady: (files: FileNode) => void;
   setIsLoading: (isLoading: boolean) => void;
@@ -27,8 +29,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
     if (!selectedFiles || selectedFiles.length === 0) return;
     
     // Check file limit
-    if (selectedFiles.length > 25) {
-      alert(`Error: Too many files selected (${selectedFiles.length}). This tool supports up to 25 files at once. Please select fewer files or break your upload into smaller batches.`);
+    if (selectedFiles.length > FILE_LIMIT) {
+      alert(`Error: Too many files selected (${selectedFiles.length}). This tool supports up to ${FILE_LIMIT} files at once. Please select fewer files or break your upload into smaller batches.`);
       if(event.target) {
         event.target.value = '';
       }
@@ -144,8 +146,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
       const parsedFiles = parseMultiFileContent(pastedCode);
       
       // Check if we exceed the 25-file limit
-      if (parsedFiles.length > 25) {
-        alert(`Error: Too many files parsed (${parsedFiles.length}). This tool supports up to 25 files at once. Please split your content into smaller batches.`);
+      if (parsedFiles.length > FILE_LIMIT) {
+        alert(`Error: Too many files parsed (${parsedFiles.length}). This tool supports up to ${FILE_LIMIT} files at once. Please split your content into smaller batches.`);
         return;
       }
       

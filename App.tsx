@@ -4,7 +4,7 @@ import type { FileNode, Explanation, ExplanationBlock } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 import FileExplorer, { ProcessingStatus } from './components/FileExplorer';
 import CodeExplainerView from './components/CodeExplainerView';
-import { explainFileStream, explainSnippetStream, generateFileSummary, generateProjectSummary } from './services/geminiService';
+import { explainFileInBulk, explainSnippetStream, generateFileSummary, generateProjectSummary } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
 import ApiKeyScreen from './components/ApiKeyScreen';
 
@@ -123,7 +123,7 @@ const App: React.FC = () => {
     }
   }, [generateSummaries]);
 
- const streamAndCacheExplanation = useCallback(async (file: FileNode) => {
+ const fetchAndCacheExplanation = useCallback(async (file: FileNode) => {
     if (!file.content || !apiKey || processingStatus.get(file.path) === 'done' || processingStatus.get(file.path) === 'processing') {
       return;
     }
@@ -132,176 +132,44 @@ const App: React.FC = () => {
     setExplanationsCache(prev => new Map(prev).set(file.path, { blocks: [] }));
 
     try {
-        const stream = await explainFileStream(file.name, file.content, apiKey);
-        let buffer = '';
-        let mode: 'find_code' | 'find_explanation' | 'stream_explanation' = 'find_code';
-        let currentCodeBlock = '';
-        
-        const CODE_MARKER = '---CODE---';
-        const EXPLANATION_MARKER = '---EXPLANATION---';
-
-        const processBuffer = () => {
-            let madeProgress = true;
-            while (madeProgress) {
-                madeProgress = false;
-
-                if (mode === 'find_code') {
-                    const markerIndex = buffer.indexOf(CODE_MARKER);
-                    if (markerIndex === -1) break;
-
-                    buffer = buffer.slice(markerIndex + CODE_MARKER.length);
-                    mode = 'find_explanation';
-                    madeProgress = true;
-                }
-
-                if (mode === 'find_explanation') {
-                    const markerIndex = buffer.indexOf(EXPLANATION_MARKER);
-                    if (markerIndex === -1) break;
-                    
-                    let codeBlock = buffer.slice(0, markerIndex);
-                    if (codeBlock.startsWith('\n')) {
-                        codeBlock = codeBlock.substring(1);
-                    }
-                    if (codeBlock.endsWith('\n')) {
-                        codeBlock = codeBlock.slice(0, -1);
-                    }
-                    currentCodeBlock = codeBlock;
-                    
-                    if (currentCodeBlock) {
-                        setExplanationsCache(prev => {
-                            const newCache = new Map(prev);
-                            const currentExpl = newCache.get(file.path) ?? { blocks: [] };
-                            const newBlocks = [...currentExpl.blocks, { code_block: currentCodeBlock, explanation: '' }];
-                            newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
-                            return newCache;
-                        });
-                    }
-
-                    buffer = buffer.slice(markerIndex + EXPLANATION_MARKER.length);
-                    mode = 'stream_explanation';
-                    madeProgress = true;
-                }
-
-                if (mode === 'stream_explanation') {
-                    const nextCodeMarkerIndex = buffer.indexOf(CODE_MARKER);
-                    
-                    if (nextCodeMarkerIndex === -1) {
-                        // To avoid consuming a marker that is split across chunks, we leave
-                        // a small part of the buffer unprocessed. This prevents a partial marker
-                        // from being treated as explanation text.
-                        const unconsumedBufferLength = CODE_MARKER.length - 1;
-                        const processableLength = Math.max(0, buffer.length - unconsumedBufferLength);
-                        
-                        if (processableLength > 0) {
-                            const explanationChunk = buffer.substring(0, processableLength);
-                            buffer = buffer.substring(processableLength);
-
-                            if (explanationChunk) {
-                                setExplanationsCache(prev => {
-                                    const newCache = new Map(prev);
-                                    const currentExpl = newCache.get(file.path);
-                                    if (!currentExpl || currentExpl.blocks.length === 0) return prev;
-                                    
-                                    const newBlocks = [...currentExpl.blocks];
-                                    const lastBlock = newBlocks[newBlocks.length - 1];
-                                    newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: lastBlock.explanation + explanationChunk };
-                                    newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
-                                    return newCache;
-                                });
-                            }
-                        }
-                        // Break and wait for the next chunk to resolve the remainder of the buffer
-                        break;
-                    } else {
-                        const explanationChunk = buffer.slice(0, nextCodeMarkerIndex);
-                        
-                        if (explanationChunk) {
-                           setExplanationsCache(prev => {
-                                const newCache = new Map(prev);
-                                const currentExpl = newCache.get(file.path);
-                                if (!currentExpl || currentExpl.blocks.length === 0) return prev;
-                                
-                                const newBlocks = [...currentExpl.blocks];
-                                const lastBlock = newBlocks[newBlocks.length - 1];
-                                newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: lastBlock.explanation + explanationChunk };
-                                newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
-                                return newCache;
-                            });
-                        }
-                        
-                        buffer = buffer.slice(nextCodeMarkerIndex);
-                        mode = 'find_code';
-                        madeProgress = true;
-                    }
-                }
-            }
-        };
-
-        for await (const chunk of stream) {
-            console.log('[GEMINI RAW CHUNK]:', chunk.text);
-            buffer += chunk.text;
-            processBuffer();
-        }
-        
-        // Process any remaining text in the buffer after the stream ends.
-        let finalChunk = buffer;
-        buffer = '';
-        if (finalChunk) {
-             setExplanationsCache(prev => {
-                const newCache = new Map(prev);
-                const currentExpl = newCache.get(file.path);
-                if (!currentExpl || currentExpl.blocks.length === 0) return prev;
-                
-                const newBlocks = [...currentExpl.blocks];
-                const lastBlock = newBlocks[newBlocks.length - 1];
-                newBlocks[newBlocks.length - 1] = { ...lastBlock, explanation: lastBlock.explanation + finalChunk };
-                newCache.set(file.path, { ...currentExpl, blocks: newBlocks });
-                return newCache;
-            });
-        }
-
+        const explanation = await explainFileInBulk(file.name, file.content, apiKey);
+        setExplanationsCache(prev => new Map(prev).set(file.path, explanation));
     } catch (error) {
-      console.error(`Error streaming explanation for ${file.name}:`, error);
-       if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('API key is invalid'))) {
+      console.error(`Error fetching explanation for ${file.name}:`, error);
+       if (error instanceof Error) {
             const isEnvKey = !!process.env.API_KEY && apiKey === process.env.API_KEY;
-            setExplanationsCache(prev => {
-                const newCache = new Map(prev);
-                const errorMessage = isEnvKey
+            let errorMessage = `Failed to analyze file. An error occurred while communicating with the API.`;
+
+            if (error.message.includes('API key not valid') || error.message.includes('API key is invalid')) {
+                 errorMessage = isEnvKey
                     ? `Failed to analyze file. The API Key provided by the environment appears to be invalid.`
                     : `Failed to analyze file. The provided API Key is invalid. Please enter a valid key.`;
+                 if (!isEnvKey) {
+                    localStorage.removeItem('gemini_api_key');
+                    setApiKey(null);
+                }
+            } else if (error.message.includes('parse')) {
+                errorMessage = 'Failed to analyze file. The response from the AI was not in the expected format.'
+            }
+            
+            setExplanationsCache(prev => {
+                const newCache = new Map(prev);
                 const block = { code_block: `// Error for ${file.name}`, explanation: errorMessage };
                 newCache.set(file.path, { blocks: [block] });
                 return newCache;
             });
-
-            if (!isEnvKey) {
-                localStorage.removeItem('gemini_api_key');
-                setApiKey(null);
-            }
        }
     } finally {
       setProcessingStatus(prev => new Map(prev).set(file.path, 'done'));
-      setExplanationsCache(prev => {
-        const newCache = new Map(prev);
-        const expl = newCache.get(file.path);
-        if (expl) {
-            const cleanedBlocks = expl.blocks.map(block => ({
-                ...block,
-                explanation: block.explanation.trim(),
-            }));
-            newCache.set(file.path, { ...expl, blocks: cleanedBlocks });
-        }
-        return newCache;
-      });
     }
   }, [processingStatus, apiKey]);
 
   const handleSelectFile = useCallback((file: FileNode) => {
     if (file.path !== selectedFile?.path) {
       setSelectedFile(file);
-      streamAndCacheExplanation(file);
+      fetchAndCacheExplanation(file);
     }
-  }, [selectedFile, streamAndCacheExplanation]);
+  }, [selectedFile, fetchAndCacheExplanation]);
 
   const handleProcessAll = useCallback(() => {
     if (!fileTree) return;
@@ -334,7 +202,6 @@ const App: React.FC = () => {
           });
 
           for await (const chunk of stream) {
-              console.log('[DEEP DIVE RAW CHUNK]:', chunk.text);
               setExplanationsCache(prev => {
                   const newCache = new Map(prev);
                   const currentExpl = newCache.get(selectedFile.path);
@@ -385,11 +252,11 @@ const App: React.FC = () => {
 
     const fileToProcess = processingQueue[0];
     
-    streamAndCacheExplanation(fileToProcess).then(() => {
+    fetchAndCacheExplanation(fileToProcess).then(() => {
       setProcessingQueue(prev => prev.slice(1));
     });
 
-  }, [processingQueue, streamAndCacheExplanation]);
+  }, [processingQueue, fetchAndCacheExplanation]);
 
   if (isAppLoading) {
     return (

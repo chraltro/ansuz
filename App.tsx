@@ -77,6 +77,12 @@ const App: React.FC = () => {
   }, [selectedFile, processingStatus]);
   
   const isProcessingQueueActive = processingQueue.length > 0 || Array.from(processingStatus.values()).some(s => s === 'processing');
+  
+  const remainingFilesToProcess = useMemo(() => {
+    if (!fileTree) return 0;
+    const allFiles = getAllFiles(fileTree);
+    return allFiles.filter(file => !explanationsCache.has(file.path) && processingStatus.get(file.path) !== 'processing').length;
+  }, [fileTree, explanationsCache, processingStatus]);
 
   const handleApiKeySubmit = (newApiKey: string) => {
     localStorage.setItem('gemini_api_key', newApiKey);
@@ -418,6 +424,7 @@ const App: React.FC = () => {
           onProcessAll={handleProcessAll}
           processingStatus={processingStatus}
           isProcessingQueueActive={isProcessingQueueActive}
+          remainingFilesToProcess={remainingFilesToProcess}
           fileSummaries={fileSummaries}
           summaryStatus={summaryStatus}
           projectSummary={projectSummary}

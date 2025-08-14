@@ -150,17 +150,6 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
     }
   }, [hoveredIndex, hoverSource, blockStartLines]);
 
-  useEffect(() => {
-    const pane = rightPaneRef.current;
-    if (!pane) return;
-
-    const isScrolledToBottom = pane.scrollHeight - pane.clientHeight <= pane.scrollTop + 50;
-
-    if (isLoading && isScrolledToBottom) {
-        streamingIndicatorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-  }, [explanation?.blocks.length, isLoading, explanationSegments.length]);
-
   const codeLines = useMemo(() => code.split('\n'), [code]);
   const language = getLanguage(fileName);
   const showInitialLoading = isLoading && (!explanation || explanation.blocks.length === 0);
@@ -240,11 +229,10 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                 </div>
             )}
 
-            {explanationSegments.map((segment, explainerIndex) => {
+            {explanationSegments.map((segment) => {
                const blockIndex = segment.blockIndex;
                const isDeepDiving = deepDiveStatus.isLoading && deepDiveStatus.blockIndex === blockIndex;
                const blockExplanation = segment.explanation || '';
-               const hasExplanationStreamed = isLoading && explainerIndex === (explanation?.blocks?.length ?? 0) -1;
 
                return (
                  <div
@@ -256,7 +244,6 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                  >
                     <div className="prose prose-invert max-w-none prose-sm prose-p:text-blue-light prose-p:mb-6 prose-headings:text-cyan-accent prose-strong:text-orange-accent prose-code:text-orange-accent prose-code:before:content-[''] prose-code:after:content-[''] prose-li:text-blue-light prose-li:my-3 prose-ul:my-6 prose-ol:my-6">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{blockExplanation.trim()}</ReactMarkdown>
-                      {hasExplanationStreamed && <span className="inline-block w-2 h-4 bg-blue-light animate-pulse ml-1"></span>}
                     </div>
                     <div className="mt-3">
                         {segment.deep_dive_explanation ? (

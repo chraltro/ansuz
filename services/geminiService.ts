@@ -1,71 +1,84 @@
 
-import { GoogleGenAI } from "@google/genai";
-import type { ExplanationBlock } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
+import type { Explanation, ExplanationBlock } from "../types";
 
-const baseSystemInstruction = `You are an expert software engineer acting as a code tutor. Your task is to analyze the provided code and generate concise, block-by-block explanations.
+const bulkSystemInstruction = `You are an expert software engineer acting as a code tutor. Your task is to analyze the provided code and generate concise, block-by-block explanations in a single JSON object.
 
 **CRITICAL RESPONSE FORMAT RULES:**
-1.  **Use Markers:** Respond ONLY with the format: \`---CODE---\`\n[code]\n\`---EXPLANATION---\`\n[explanation] for each block.
-2.  **Verbatim Code:** The \`[code]\` section MUST be an exact, verbatim, character-for-character copy of a snippet from the original file. Do NOT alter it in any way.
-3.  **No Extra Text:** DO NOT include any text or remarks outside the marker structure.
-4.  **CRITICAL - NO REPEATED CODE:** You MUST process the file sequentially from top to bottom. Once you have provided an explanation for a code block, DO NOT include that same code block again later in your response. Repeating code blocks will break the application parsing your response. Move on to the next unique, subsequent part of the code.
+1.  **JSON OBJECT ONLY:** You MUST respond with a single, valid JSON object and nothing else. Do not wrap it in markdown, and do not include any text or remarks outside of this JSON object.
+2.  **JSON STRUCTURE:** The JSON object must have a single key "blocks". The value must be an array of objects. Each object in the array represents a sequential code block and its explanation, with the keys "code_block" and "explanation".
+3.  **VERBATIM CODE:** The "code_block" value MUST be an exact, verbatim, character-for-character copy of a snippet from the original file.
+4.  **SEQUENTIAL & NON-REPEATING:** You MUST process the file sequentially from top to bottom. Once you have provided an explanation for a code block, DO NOT include that same code block again.
 
 **CRITICAL EXPLANATION & MARKDOWN STYLE RULES:**
-- **MANDATORY Markdown:** All explanations must be in well-formatted Markdown.
-- **Paragraphs are REQUIRED:** Break up ideas into separate paragraphs. A paragraph is text separated by a blank line. Do not write monolithic text blocks.
-- **Correct Spacing for Lists:** YOU MUST insert a blank line before starting any bulleted or numbered list. This is not optional.
-    - **CORRECT:**
-      This is a paragraph.
-
-      * List item 1.
-      * List item 2.
-
-    - **INCORRECT (DO NOT DO THIS):**
-      This is a paragraph.
-      * List item 1.
-      * List item 2.
+- **MANDATORY Markdown:** All "explanation" values must be in well-formatted Markdown.
+- **NO TABLES:** You MUST NOT use markdown tables. Use bulleted lists instead for tabular data.
+- **Paragraphs are REQUIRED:** Break up ideas into separate paragraphs. A paragraph is text separated by a blank line.
+- **Correct Spacing for Lists:** YOU MUST insert a blank line before starting any bulleted or numbered list.
 - **Bulleted Lists for Enumerations:** When explaining multiple items (e.g., function parameters, object properties, logical steps), you MUST use a bulleted list (\`* item\`).
 - **Bold for Emphasis:** Use **bold text** to highlight key terms.
 
-**Example of a PERFECT response block:**
-
----CODE---
-function example(name, options) {
-  // ...
+**EXAMPLE OF A PERFECT JSON RESPONSE:**
+{
+  "blocks": [
+    {
+      "code_block": "function example(name, options) {\\n  // ...\\n}",
+      "explanation": "This function \`example\` sets up a new component. It's the primary entry point for the module.\\n\\nIt accepts the following parameters:\\n\\n*   **name**: The unique identifier for the component.\\n*   **options**: A configuration object that determines behavior."
+    }
+  ]
 }
----EXPLANATION---
-This function \`example\` sets up a new component. It's the primary entry point for the module.
-
-It accepts the following parameters:
-
-*   **name**: The unique identifier for the component.
-*   **options**: A configuration object that determines behavior.
 `;
 
-
-export const explainFileStream = (fileName: string, code: string, apiKey: string) => {
-  if (!apiKey) {
-    throw new Error("Gemini API key is not configured.");
-  }
-  const ai = new GoogleGenAI({ apiKey });
-
-  if (!code.trim()) {
-    // This is not a stream, but it's a simple edge case.
-    const emptyExplanation = `---CODE---\n// This file is empty.\n---EXPLANATION---\nThere is no code in this file to analyze.`;
-    // To make it behave like a stream for the client:
-    return (async function* () {
-      yield { text: emptyExplanation };
-    })();
-  }
+export const explainFileInBulk = async (fileName: string, code: string, apiKey: string): Promise<Explanation> => {
+    if (!apiKey) {
+      throw new Error("Gemini API key is not configured.");
+    }
+    const ai = new GoogleGenAI({ apiKey });
   
-  return ai.models.generateContentStream({
-      model: "gemini-2.5-flash",
-      contents: `Analyze the following code from the file \`${fileName}\`:\n\n---\n${code}\n---`,
-      config: {
-          systemInstruction: baseSystemInstruction,
-          temperature: 0.2,
-      }
-  });
+    if (!code.trim()) {
+      return { blocks: [{ code_block: "// This file is empty.", explanation: "There is no code in this file to analyze." }]};
+    }
+    
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Analyze the following code from the file \`${fileName}\`:\n\n---\n${code}\n---`,
+        config: {
+            systemInstruction: bulkSystemInstruction,
+            temperature: 0.2,
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    blocks: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                code_block: { type: Type.STRING },
+                                explanation: { type: Type.STRING }
+                            },
+                            required: ["code_block", "explanation"]
+                        }
+                    }
+                },
+                required: ["blocks"]
+            }
+        }
+    });
+
+    const jsonText = response.text;
+    try {
+        const parsed = JSON.parse(jsonText);
+        if (parsed && Array.isArray(parsed.blocks)) {
+            return parsed as Explanation;
+        } else {
+            console.error("Invalid JSON structure received from API:", jsonText);
+            throw new Error("Invalid JSON structure received from API.");
+        }
+    } catch (e) {
+        console.error("Failed to parse JSON response:", jsonText, e);
+        throw new Error("Failed to parse explanation from API response.");
+    }
 };
 
 

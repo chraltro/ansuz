@@ -4,7 +4,7 @@ import type { FileNode, Explanation, ExplanationBlock } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 import FileExplorer, { ProcessingStatus } from './components/FileExplorer';
 import CodeExplainerView from './components/CodeExplainerView';
-import { explainFileInBulk, explainSnippetStream, generateFileSummary, generateProjectSummary, generateAllSummaries, generateAllSummariesStream } from './services/geminiService';
+import { explainFileInBulk, explainSnippetStream, generateProjectSummary, generateAllSummariesStream } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
 import ApiKeyScreen from './components/ApiKeyScreen';
 
@@ -32,6 +32,31 @@ const createBlockHash = (codeBlock: string): string => {
         hash = hash & hash; // Convert to 32-bit integer
     }
     return hash.toString(36);
+};
+
+// Utility function for handling API errors consistently
+const handleApiError = (error: unknown, apiKey: string | null, setApiKey: (key: string | null) => void): string => {
+    if (!(error instanceof Error)) return 'An unexpected error occurred.';
+    
+    const isEnvKey = !!process.env.API_KEY && apiKey === process.env.API_KEY;
+    
+    if (error.message.includes('API key not valid') || error.message.includes('API key is invalid')) {
+        const errorMessage = isEnvKey
+            ? 'The API Key provided by the environment appears to be invalid.'
+            : 'The provided API Key is invalid. Please enter a valid key.';
+        
+        if (!isEnvKey) {
+            localStorage.removeItem('gemini_api_key');
+            setApiKey(null);
+        }
+        return errorMessage;
+    }
+    
+    if (error.message.includes('parse')) {
+        return 'The response from the AI was not in the expected format.';
+    }
+    
+    return 'An error occurred while communicating with the API.';
 };
 
 interface DeepDiveStatus {
@@ -81,8 +106,8 @@ const App: React.FC = () => {
   const remainingFilesToProcess = useMemo(() => {
     if (!fileTree) return 0;
     const allFiles = getAllFiles(fileTree);
-    return allFiles.filter(file => !explanationsCache.has(file.path) && processingStatus.get(file.path) !== 'processing').length;
-  }, [fileTree, explanationsCache, processingStatus]);
+    return allFiles.filter(file => !explanationsCache.has(file.path)).length;
+  }, [fileTree, explanationsCache]);
 
   const handleApiKeySubmit = (newApiKey: string) => {
     localStorage.setItem('gemini_api_key', newApiKey);
@@ -93,8 +118,10 @@ const App: React.FC = () => {
       if (files.length === 0 || !apiKey) return;
       
       setIsProjectSummaryLoading(true);
-      const initialStatus = new Map(files.map(f => [f.path, 'summarizing' as SummaryStatus]));
-      setSummaryStatus(initialStatus);
+      
+      // Initialize all files as summarizing
+      const summaryStatus = new Map(files.map(f => [f.path, 'summarizing' as SummaryStatus]));
+      setSummaryStatus(summaryStatus);
 
       try {
           const filesWithContent = files.map(file => ({
@@ -104,22 +131,17 @@ const App: React.FC = () => {
           }));
 
           const newSummaries = new Map<string, string>();
-          const newStatus = new Map<string, SummaryStatus>();
-          
-          // Initialize all files as summarizing
-          files.forEach(f => newStatus.set(f.path, 'summarizing'));
-          setSummaryStatus(new Map(newStatus));
 
           // Stream summaries as they come in
           let projectSummaryReceived = false;
           for await (const result of generateAllSummariesStream(filesWithContent, apiKey)) {
               if (result.type === 'file_summary') {
                   newSummaries.set(result.path, result.summary);
-                  newStatus.set(result.path, 'done');
+                  summaryStatus.set(result.path, 'done');
                   
                   // Update UI incrementally
                   setFileSummaries(new Map(newSummaries));
-                  setSummaryStatus(new Map(newStatus));
+                  setSummaryStatus(new Map(summaryStatus));
               } else if (result.type === 'project_summary') {
                   setProjectSummary(result.summary);
                   projectSummaryReceived = true;
@@ -147,14 +169,13 @@ const App: React.FC = () => {
           console.error("Failed to generate summaries:", error);
           
           // Fallback to error state
-          const newSummaries = new Map<string, string>();
-          const newStatus = new Map<string, SummaryStatus>();
+          const errorSummaries = new Map<string, string>();
           files.forEach(f => {
-              newSummaries.set(f.path, 'Failed to generate summary.');
-              newStatus.set(f.path, 'done');
+              errorSummaries.set(f.path, 'Failed to generate summary.');
+              summaryStatus.set(f.path, 'done');
           });
-          setFileSummaries(newSummaries);
-          setSummaryStatus(newStatus);
+          setFileSummaries(errorSummaries);
+          setSummaryStatus(new Map(summaryStatus));
           setProjectSummary("Could not generate a project summary.");
       }
 
@@ -275,29 +296,14 @@ const App: React.FC = () => {
         
     } catch (error) {
       console.error(`Error fetching explanation for ${file.name}:`, error);
-       if (error instanceof Error) {
-            const isEnvKey = !!process.env.API_KEY && apiKey === process.env.API_KEY;
-            let errorMessage = `Failed to analyze file. An error occurred while communicating with the API.`;
-
-            if (error.message.includes('API key not valid') || error.message.includes('API key is invalid')) {
-                 errorMessage = isEnvKey
-                    ? `Failed to analyze file. The API Key provided by the environment appears to be invalid.`
-                    : `Failed to analyze file. The provided API Key is invalid. Please enter a valid key.`;
-                 if (!isEnvKey) {
-                    localStorage.removeItem('gemini_api_key');
-                    setApiKey(null);
-                }
-            } else if (error.message.includes('parse')) {
-                errorMessage = 'Failed to analyze file. The response from the AI was not in the expected format.'
-            }
-            
-            setExplanationsCache(prev => {
-                const newCache = new Map(prev);
-                const block = { code_block: `// Error for ${file.name}`, explanation: errorMessage };
-                newCache.set(file.path, { blocks: [block] });
-                return newCache;
-            });
-       }
+      const errorMessage = `Failed to analyze file. ${handleApiError(error, apiKey, setApiKey)}`;
+      
+      setExplanationsCache(prev => {
+          const newCache = new Map(prev);
+          const block = { code_block: `// Error for ${file.name}`, explanation: errorMessage };
+          newCache.set(file.path, { blocks: [block] });
+          return newCache;
+      });
     } finally {
       setProcessingStatus(prev => new Map(prev).set(file.path, 'done'));
     }
@@ -312,9 +318,9 @@ const App: React.FC = () => {
 
   const handleProcessAll = useCallback(() => {
     if (!fileTree) return;
-    const allFiles = getAllFiles(fileTree).filter(file => !explanationsCache.has(file.path) && processingStatus.get(file.path) !== 'processing');
+    const allFiles = getAllFiles(fileTree).filter(file => !explanationsCache.has(file.path));
     setProcessingQueue(allFiles);
-  }, [fileTree, explanationsCache, processingStatus]);
+  }, [fileTree, explanationsCache]);
 
   const handleDeepDive = async (blockIndex: number) => {
       if (!selectedFile || !apiKey || deepDiveStatus.isLoading) return;
@@ -357,19 +363,7 @@ const App: React.FC = () => {
           console.error("Deep dive failed:", error);
           if (!selectedFile) return;
 
-          const isEnvKey = !!process.env.API_KEY && apiKey === process.env.API_KEY;
-          let errorMessage = '**Deep Dive Failed:** An unexpected error occurred.';
-
-          if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('API key is invalid'))) {
-              errorMessage = isEnvKey
-                  ? '**Deep Dive Failed:** The API Key provided by the environment appears to be invalid.'
-                  : '**Deep Dive Failed:** The provided API Key is invalid. You will be prompted for a new key.';
-              
-              if (!isEnvKey) {
-                  localStorage.removeItem('gemini_api_key');
-                  setApiKey(null);
-              }
-          }
+          const errorMessage = `**Deep Dive Failed:** ${handleApiError(error, apiKey, setApiKey)}`;
           
           setExplanationsCache(prev => {
               const newCache = new Map(prev);
@@ -391,11 +385,17 @@ const App: React.FC = () => {
 
     const fileToProcess = processingQueue[0];
     
+    // Skip files that are already processing or already have explanations
+    if (processingStatus.get(fileToProcess.path) === 'processing' || explanationsCache.has(fileToProcess.path)) {
+      setProcessingQueue(prev => prev.slice(1));
+      return;
+    }
+    
     fetchAndCacheExplanation(fileToProcess).then(() => {
       setProcessingQueue(prev => prev.slice(1));
     });
 
-  }, [processingQueue, fetchAndCacheExplanation]);
+  }, [processingQueue, fetchAndCacheExplanation, processingStatus, explanationsCache]);
 
   if (isAppLoading) {
     return (
@@ -424,6 +424,7 @@ const App: React.FC = () => {
           onProcessAll={handleProcessAll}
           processingStatus={processingStatus}
           isProcessingQueueActive={isProcessingQueueActive}
+          processingQueueLength={processingQueue.length}
           remainingFilesToProcess={remainingFilesToProcess}
           fileSummaries={fileSummaries}
           summaryStatus={summaryStatus}

@@ -88,53 +88,96 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
   };
 
   const parseMultiFileContent = (content: string): FileNode[] => {
-    // Check if content contains multi-file format (### `filename`)
-    const multiFilePattern = /^###\s*`([^`]+)`\s*\n/gm;
-    const matches = Array.from(content.matchAll(multiFilePattern));
+    // Check for Claude Code format first (------ filepath ------)
+    // Must have exactly 6 dashes on each side and contain a file path (with . or /)
+    const claudePattern = /^------\s+([^\s].*?[./][^\s]*.*?)\s+------\s*\n/gm;
+    const claudeMatches = Array.from(content.matchAll(claudePattern));
     
-    if (matches.length === 0) {
-      // Single file format
-      const fileExtension = fileName.includes('.') ? fileName : `${fileName}.txt`;
-      return [{
-        name: fileExtension,
-        content: content,
-        children: [],
-        path: fileExtension,
-      }];
-    }
-
-    // Multi-file format
-    const files: FileNode[] = [];
-    let lastIndex = 0;
-
-    matches.forEach((match, index) => {
-      const filename = match[1];
-      const startIndex = match.index! + match[0].length;
+    if (claudeMatches.length > 0) {
+      // Claude Code format
+      const files: FileNode[] = [];
       
-      // Find the end of this file's content (start of next file or end of string)
-      let endIndex = content.length;
-      if (index < matches.length - 1) {
-        endIndex = matches[index + 1].index!;
-      }
-      
-      // Extract content between code blocks (remove ```language and ``` markers)
-      let fileContent = content.substring(startIndex, endIndex).trim();
-      
-      // Remove code block markers if present
-      const codeBlockMatch = fileContent.match(/^```[\w]*\n([\s\S]*?)\n```$/);
-      if (codeBlockMatch) {
-        fileContent = codeBlockMatch[1];
-      }
-      
-      files.push({
-        name: filename,
-        content: fileContent,
-        children: [],
-        path: filename,
+      claudeMatches.forEach((match, index) => {
+        const filepath = match[1].trim();
+        const filename = filepath.split('/').pop() || filepath;
+        const startIndex = match.index! + match[0].length;
+        
+        // Find the end of this file's content (start of next file or end of string)
+        let endIndex = content.length;
+        if (index < claudeMatches.length - 1) {
+          endIndex = claudeMatches[index + 1].index!;
+        }
+        
+        // Extract content and remove code block markers if present
+        let fileContent = content.substring(startIndex, endIndex).trim();
+        
+        // Remove code block markers (`````` or ```)
+        const sixTickMatch = fileContent.match(/^``````[\w]*\n?([\s\S]*?)\n?``````$/);
+        const threeTickMatch = fileContent.match(/^```[\w]*\n?([\s\S]*?)\n?```$/);
+        
+        if (sixTickMatch) {
+          fileContent = sixTickMatch[1];
+        } else if (threeTickMatch) {
+          fileContent = threeTickMatch[1];
+        }
+        
+        files.push({
+          name: filename,
+          content: fileContent,
+          children: [],
+          path: filepath,
+        });
       });
-    });
+      
+      return files;
+    }
+    
+    // Check for legacy format (### `filename`)
+    const legacyPattern = /^###\s*`([^`]+)`\s*\n/gm;
+    const legacyMatches = Array.from(content.matchAll(legacyPattern));
+    
+    if (legacyMatches.length > 0) {
+      // Legacy multi-file format
+      const files: FileNode[] = [];
 
-    return files;
+      legacyMatches.forEach((match, index) => {
+        const filename = match[1];
+        const startIndex = match.index! + match[0].length;
+        
+        // Find the end of this file's content (start of next file or end of string)
+        let endIndex = content.length;
+        if (index < legacyMatches.length - 1) {
+          endIndex = legacyMatches[index + 1].index!;
+        }
+        
+        // Extract content between code blocks (remove ```language and ``` markers)
+        let fileContent = content.substring(startIndex, endIndex).trim();
+        
+        // Remove code block markers if present
+        const codeBlockMatch = fileContent.match(/^```[\w]*\n([\s\S]*?)\n```$/);
+        if (codeBlockMatch) {
+          fileContent = codeBlockMatch[1];
+        }
+        
+        files.push({
+          name: filename,
+          content: fileContent,
+          children: [],
+          path: filename,
+        });
+      });
+
+      return files;
+    }
+    
+    // Single file format
+    const fileExtension = fileName.includes('.') ? fileName : `${fileName}.txt`;
+    return [{
+      name: fileExtension,
+      content: content,
+      children: [],
+      path: fileExtension,
+    }];
   };
 
   const handlePasteSubmit = () => {
@@ -251,7 +294,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
               </label>
               <div className="mb-2 text-xs text-gray-400">
                 <strong>Single file:</strong> Just paste your code<br/>
-                <strong>Multiple files:</strong> Use format: <code className="bg-gray-700 px-1 rounded">### `filename.ext`</code> followed by code block
+                <strong>Multiple files:</strong> Use Claude Code format: <code className="bg-gray-700 px-1 rounded">------ filepath ------</code> followed by code block<br/>
+                <strong>Legacy:</strong> Also supports <code className="bg-gray-700 px-1 rounded">### `filename.ext`</code> format
               </div>
               <textarea
                 id="code-paste"
@@ -259,13 +303,24 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
                 onChange={(e) => setPastedCode(e.target.value)}
                 placeholder={`Single file: Just paste your code here...
 
-Multiple files format:
-### \`index.html\`
-\`\`\`html
-<!DOCTYPE html>
-<html>...
-\`\`\`
+Multiple files (Claude Code format):
+------ .claude/file.json ------
+\`\`\`\`\`\`
+{
+  "permissions": {
+    "allow": ["Bash(npm install)"]
+  }
+}
+\`\`\`\`\`\`
 
+------ components/Button.tsx ------
+\`\`\`\`\`\`
+export const Button = () => {
+  return <button>Click me</button>;
+};
+\`\`\`\`\`\`
+
+Legacy format also supported:
 ### \`main.js\`
 \`\`\`javascript
 console.log('Hello');

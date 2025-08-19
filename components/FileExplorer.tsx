@@ -24,6 +24,7 @@ interface FileExplorerProps {
   summaryStatus: Map<string, SummaryStatus>;
   projectSummary: string;
   isProjectSummaryLoading: boolean;
+  onLogout?: () => void;
 }
 
 interface FileExplorerContentProps {
@@ -121,7 +122,7 @@ const FileExplorerContent: React.FC<FileExplorerContentProps> = ({ node, selecte
 }
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
-    const { node, selectedFile, onSelectFile, onProcessAll, processingStatus, isProcessingQueueActive, processingQueueLength, remainingFilesToProcess, fileSummaries, summaryStatus, projectSummary, isProjectSummaryLoading } = props;
+    const { node, selectedFile, onSelectFile, onProcessAll, processingStatus, isProcessingQueueActive, processingQueueLength, remainingFilesToProcess, fileSummaries, summaryStatus, projectSummary, isProjectSummaryLoading, onLogout } = props;
     
     const getButtonText = () => {
         if (remainingFilesToProcess === 0) {
@@ -153,7 +154,17 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
     return (
         <div className="h-full flex flex-col bg-gray-800">
             <div className="p-3 border-b border-gray-700">
-                <h2 className="text-lg font-bold text-blue-light">File Explorer</h2>
+                <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-lg font-bold text-blue-light">File Explorer</h2>
+                    {onLogout && (
+                        <button
+                            onClick={onLogout}
+                            className="bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white px-3 py-1.5 rounded-md transition-colors duration-200 text-xs font-medium"
+                        >
+                            Logout
+                        </button>
+                    )}
+                </div>
                  <div className="mt-2 mb-4 p-2 bg-gray-900/50 rounded-md min-h-[6rem]">
                     <h3 className="text-sm font-bold text-cyan-accent mb-1">Project Summary</h3>
                     {isProjectSummaryLoading && (

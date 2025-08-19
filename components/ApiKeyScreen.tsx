@@ -3,9 +3,11 @@ import React, { useState } from 'react';
 
 interface ApiKeyScreenProps {
   onApiKeySubmit: (apiKey: string) => void;
+  showLogout?: boolean;
+  onLogout?: () => void;
 }
 
-const ApiKeyScreen: React.FC<ApiKeyScreenProps> = ({ onApiKeySubmit }) => {
+const ApiKeyScreen: React.FC<ApiKeyScreenProps> = ({ onApiKeySubmit, showLogout = false, onLogout }) => {
   const [apiKey, setApiKey] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -18,6 +20,16 @@ const ApiKeyScreen: React.FC<ApiKeyScreenProps> = ({ onApiKeySubmit }) => {
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
+      {showLogout && onLogout && (
+        <div className="absolute top-4 right-4">
+          <button
+            onClick={onLogout}
+            className="bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white px-4 py-2 rounded-lg transition-colors duration-200 text-sm font-medium"
+          >
+            Logout
+          </button>
+        </div>
+      )}
       <div className="text-center p-10 border-2 border-dashed border-gray-700 rounded-2xl max-w-2xl w-full">
         <h1 className="text-4xl font-bold text-blue-light mb-4">AI Code Explainer</h1>
         <p className="text-lg text-gray-500 mb-8">

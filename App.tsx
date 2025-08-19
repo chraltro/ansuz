@@ -114,6 +114,20 @@ const App: React.FC = () => {
     setApiKey(newApiKey);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('gemini_api_key');
+    setApiKey(null);
+    setFileTree(null);
+    setSelectedFile(null);
+    setExplanationsCache(new Map());
+    setProcessingStatus(new Map());
+    setProcessingQueue([]);
+    setGlobalBlockCache(new Map());
+    setFileSummaries(new Map());
+    setProjectSummary('');
+    setSummaryStatus(new Map());
+  };
+
   const generateSummaries = useCallback(async (files: FileNode[]) => {
       if (files.length === 0 || !apiKey) return;
       
@@ -430,6 +444,7 @@ const App: React.FC = () => {
           summaryStatus={summaryStatus}
           projectSummary={projectSummary}
           isProjectSummaryLoading={isProjectSummaryLoading}
+          onLogout={handleLogout}
         />
       </aside>
 

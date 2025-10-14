@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ANSUZ - Code Decoded by AI</title>
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Fira+Code&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <script>
-      tailwind.config = {
+      window.tailwind = { config: {
         theme: {
           extend: {
             fontFamily: {
@@ -18,20 +18,20 @@
               mono: ['Fira Code', 'monospace'],
             },
             colors: {
-              'gray-900': '#1a1b26',
-              'gray-800': '#24283b',
-              'gray-700': '#414868',
-              'gray-600': '#565f89',
-              'gray-500': '#787c99',
-              'blue-light': '#a9b1d6',
-              'blue-accent': '#7aa2f7',
+              'gray-900': '#0b0f14',
+              'gray-800': '#121721',
+              'gray-700': '#1b2430',
+              'gray-600': '#2a3443',
+              'gray-500': '#4a5565',
+              'blue-light': '#e6e6e6',
+              'blue-accent': '#4338ca',
               'cyan-accent': '#7dcfff',
               'green-accent': '#9ece6a',
-              'orange-accent': '#ff9e64',
+              'orange-accent': '#d4a373',
             },
           },
         },
-      };
+      }};
     </script>
   <script type="importmap">
 {
@@ -54,17 +54,23 @@
     height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: #24283b; /* gray-800 */
+    background: #121721; /* gray-800 */
   }
   ::-webkit-scrollbar-thumb {
-    background: #414868; /* gray-700 */
+    background: #1b2430; /* gray-700 */
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #565f89; /* gray-600 */
+    background: #2a3443; /* gray-600 */
+  }
+
+  /* Norrøn headings */
+  h1, h2, .nrn-heading {
+    font-family: 'Cinzel', serif;
+    letter-spacing: 0.02em;
   }
 </style>
-<link rel="stylesheet" href="/index.css">
+<link rel="stylesheet" href="index.css">
 </head>
   <body class="bg-gray-900 text-blue-light font-sans">
     <div id="root"></div>

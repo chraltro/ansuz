@@ -1,9 +1,9 @@
 {
-  "name": "ai-code-explainer",
+  "name": "ansuz",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "homepage": "https://yourusername.github.io/ai-code-explainer",
+  "homepage": "https://chraltro.github.io/ansuz",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

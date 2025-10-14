@@ -1,6 +1,6 @@
-# 🤖 AI Code Explainer
+# ᚨ ANSUZ - Code Decoded by AI
 
-> Transform complex code into clear, understandable explanations with AI-powered analysis
+> Transform complex code into clear, understandable explanations with AI-powered analysis powered by the wisdom of Ansuz, the Norse rune of knowledge and communication
 
 ## ✨ Features
 
@@ -13,11 +13,11 @@
 
 ## 🚀 Live Demo
 
-Experience the app in action: **[ai-code-explainer.pages.dev](https://chraltro.github.io/ai-code-explainer)**
+Experience the app in action: **[chraltro.github.io/ai-code-explainer](https://chraltro.github.io/ai-code-explainer)**
 
 ## 📸 Screenshots
 
-![AI Code Explainer Interface](https://via.placeholder.com/800x400/1a1b26/a9b1d6?text=Add+Screenshot+Here)
+![ANSUZ Interface](https://via.placeholder.com/800x400/1a1b26/03defc?text=ANSUZ+Code+Decoder)
 
 ## 🛠️ Tech Stack
 

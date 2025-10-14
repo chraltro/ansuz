@@ -227,9 +227,12 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
       <div className="text-center p-10 border-2 border-dashed border-gray-700 rounded-2xl max-w-2xl w-full">
-        <h1 className="text-4xl font-bold text-blue-light mb-4">Ready to Analyze</h1>
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <img src="/logo.svg" alt="ANSUZ Logo" className="w-16 h-16" />
+          <h1 className="text-4xl font-bold text-cyan-accent">ANSUZ</h1>
+        </div>
         <p className="text-lg text-gray-500 mb-8">
-          Upload your code to get a detailed, AI-powered breakdown. Select files, folders, or paste code directly.
+          Code Decoded by AI - Upload your code to reveal its wisdom through the power of Ansuz
         </p>
         
         <input

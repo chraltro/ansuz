@@ -13,7 +13,7 @@
 
 ## 🚀 Live Demo
 
-Experience the app in action: **[chraltro.github.io/ai-code-explainer](https://chraltro.github.io/ai-code-explainer)**
+Experience the app in action: **[chraltro.github.io/ansuz](https://chraltro.github.io/ansuz)**
 
 ## 📸 Screenshots
 
@@ -45,8 +45,8 @@ Experience the app in action: **[chraltro.github.io/ai-code-explainer](https://c
 
 ```bash
 # Clone the repository
-git clone https://github.com/chraltro/ai-code-explainer.git
-cd ai-code-explainer
+git clone https://github.com/chraltro/ansuz.git
+cd ansuz
 
 # Install dependencies
 npm install
@@ -71,7 +71,7 @@ Open [http://localhost:5173](http://localhost:5173) to view the app.
 ## 📁 Project Structure
 
 ```
-ai-code-explainer/
+ansuz/
 ├── components/           # React components
 │   ├── CodeExplainerView.tsx
 │   ├── FileExplorer.tsx

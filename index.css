@@ -1,0 +1,7 @@
+/* Placeholder stylesheet to avoid 404s during local dev.
+   ANSUZ primarily uses Tailwind CDN + component styles. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+}

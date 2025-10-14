@@ -168,3 +168,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [React Syntax Highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter) for beautiful code display
 - [Tailwind CSS](https://tailwindcss.com/) for the styling system
 - [Lucide React](https://lucide.dev/) for the icon set
+

@@ -9,7 +9,7 @@
     "build": "cross-env ROLLUP_DISABLE_NATIVE=1 vite build",
     "preview": "cross-env ROLLUP_DISABLE_NATIVE=1 vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "node scripts/publish-to-root.js && git add -A && git commit -m \"Deploy site\" || echo Skipping commit && git push"
   },
   "dependencies": {
     "@google/genai": "^1.13.0",

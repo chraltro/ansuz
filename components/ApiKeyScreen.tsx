@@ -31,9 +31,12 @@ const ApiKeyScreen: React.FC<ApiKeyScreenProps> = ({ onApiKeySubmit, showLogout 
         </div>
       )}
       <div className="text-center p-10 border-2 border-dashed border-gray-700 rounded-2xl max-w-2xl w-full">
-        <h1 className="text-4xl font-bold text-blue-light mb-4">AI Code Explainer</h1>
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <img src="/logo.svg" alt="ANSUZ Logo" className="w-16 h-16" />
+          <h1 className="text-4xl font-bold text-cyan-accent">ANSUZ</h1>
+        </div>
         <p className="text-lg text-gray-500 mb-8">
-          To get started, please enter your Google Gemini API Key.
+          Code Decoded by AI - Enter your Gemini API Key to unlock the wisdom of Ansuz
         </p>
         
         <form onSubmit={handleSubmit} className="max-w-md mx-auto">

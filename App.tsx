@@ -1,12 +1,15 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { FileNode, Explanation, ExplanationBlock } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
-import FileExplorer, { ProcessingStatus } from './components/FileExplorer';
-import CodeExplainerView from './components/CodeExplainerView';
+import type { ProcessingStatus } from './components/FileExplorer';
 import { explainFileInBulk, explainSnippetStream, generateProjectSummary, generateAllSummariesStream } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
 import ApiKeyScreen from './components/ApiKeyScreen';
+
+// Lazy load heavy components with large dependencies
+const FileExplorer = lazy(() => import('./components/FileExplorer'));
+const CodeExplainerView = lazy(() => import('./components/CodeExplainerView'));
 
 const getAllFiles = (node: FileNode, files: FileNode[] = []): FileNode[] => {
     if (node.content !== null) {
@@ -431,26 +434,38 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen max-h-screen overflow-hidden text-sm">
       <aside className="w-1/4 min-w-[300px] max-w-[450px] border-r border-gray-700">
-        <FileExplorer 
-          node={fileTree} 
-          selectedFile={selectedFile} 
-          onSelectFile={handleSelectFile}
-          onProcessAll={handleProcessAll}
-          processingStatus={processingStatus}
-          isProcessingQueueActive={isProcessingQueueActive}
-          processingQueueLength={processingQueue.length}
-          remainingFilesToProcess={remainingFilesToProcess}
-          fileSummaries={fileSummaries}
-          summaryStatus={summaryStatus}
-          projectSummary={projectSummary}
-          isProjectSummaryLoading={isProjectSummaryLoading}
-          onLogout={handleLogout}
-        />
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-32 text-gray-500">
+            <SpinnerIcon className="w-8 h-8" />
+          </div>
+        }>
+          <FileExplorer
+            node={fileTree}
+            selectedFile={selectedFile}
+            onSelectFile={handleSelectFile}
+            onProcessAll={handleProcessAll}
+            processingStatus={processingStatus}
+            isProcessingQueueActive={isProcessingQueueActive}
+            processingQueueLength={processingQueue.length}
+            remainingFilesToProcess={remainingFilesToProcess}
+            fileSummaries={fileSummaries}
+            summaryStatus={summaryStatus}
+            projectSummary={projectSummary}
+            isProjectSummaryLoading={isProjectSummaryLoading}
+            onLogout={handleLogout}
+          />
+        </Suspense>
       </aside>
 
       <main className="w-3/4 flex-grow bg-gray-900">
         {selectedFile ? (
-            <CodeExplainerView 
+          <Suspense fallback={
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+              <SpinnerIcon className="w-12 h-12" />
+              <p className="mt-4">Loading {selectedFile.name}...</p>
+            </div>
+          }>
+            <CodeExplainerView
                 explanation={currentExplanation}
                 isLoading={isExplanationLoading}
                 fileName={selectedFile.name}
@@ -458,6 +473,7 @@ const App: React.FC = () => {
                 onDeepDive={handleDeepDive}
                 deepDiveStatus={deepDiveStatus}
             />
+          </Suspense>
         ) : (
             <div className="flex items-center justify-center h-full text-gray-600 p-8 text-center">
                 <p>Select a file from the explorer to begin analysis.<br/>You can hover over files to see a brief summary.</p>

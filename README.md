@@ -1,4 +1,4 @@
-# ᚨ ANSUZ - Code Decoded by AI
+# ᚨ Ansuz - Code Decoded by AI
 
 > Transform complex code into clear, understandable explanations with AI-powered analysis powered by the wisdom of Ansuz, the Norse rune of knowledge and communication
 
@@ -17,7 +17,7 @@ Experience the app in action: **[chraltro.github.io/ansuz](https://chraltro.gith
 
 ## 📸 Screenshots
 
-![ANSUZ Interface](https://via.placeholder.com/800x400/1a1b26/03defc?text=ANSUZ+Code+Decoder)
+![Ansuz Interface](https://via.placeholder.com/800x400/1a1b26/03defc?text=Ansuz+Code+Decoder)
 
 ## 🛠️ Tech Stack
 

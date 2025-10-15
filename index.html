@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ansuz - Code Decoded by AI</title>
     <link rel="icon" type="image/svg+xml" href="/ansuz/logo.svg" />
+    <link rel="stylesheet" href="/ansuz/shared/theme.css">
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,6 +29,7 @@
               'cyan-accent': '#7dcfff',
               'green-accent': '#9ece6a',
               'orange-accent': '#d4a373',
+              'fjord-blue': '#00B4D8',
             },
           },
         },
@@ -35,6 +37,14 @@
     </script>
 
 <style>
+  :root {
+    /* Ansuz-specific accent color - Fjord Blue */
+    --app-accent: #00B4D8;
+    --app-accent-dark: #0090B6;
+    --app-accent-light: #33C4E3;
+    --app-accent-rgb: 0, 180, 216;
+  }
+
   /* Custom scrollbar for webkit browsers */
   ::-webkit-scrollbar {
     width: 8px;

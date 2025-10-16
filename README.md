@@ -1,171 +1,86 @@
-# ᚨ Ansuz - Code Decoded by AI
+# Ansuz - Code Explainer
 
-> Transform complex code into clear, understandable explanations with AI-powered analysis powered by the wisdom of Ansuz, the Norse rune of knowledge and communication
+A code analysis tool that generates detailed explanations for source files using the Gemini API. Named after the Norse rune of knowledge and communication.
 
-## ✨ Features
+## Features
 
-- **🎯 Smart Code Analysis** - Upload any code file and get instant, block-by-block explanations
-- **🔍 Deep Dive Mode** - Get advanced insights into design patterns, trade-offs, and best practices  
-- **📁 Multi-file Support** - Analyze entire projects with the built-in file explorer
-- **💫 Real-time Streaming** - Watch explanations generate in real-time as AI processes your code
-- **🎨 Syntax Highlighting** - Beautiful code display with language-specific highlighting
-- **🔒 Privacy First** - All processing happens locally and through Gemini API - no data stored on servers
+- Block-by-block code explanations with streaming responses
+- Deep dive mode for architectural analysis and design patterns
+- Multi-file project support with tree navigation
+- File hover previews showing brief summaries
+- Syntax highlighting for multiple languages
+- Batch processing with progress tracking
+- Client-side caching to avoid duplicate API calls
 
-## 🚀 Live Demo
+## Live Demo
 
-Experience the app in action: **[chraltro.github.io/ansuz](https://chraltro.github.io/ansuz)**
+[chraltro.github.io/ansuz](https://chraltro.github.io/ansuz)
 
-## 📸 Screenshots
+## How It Works
 
-![Ansuz Interface](https://via.placeholder.com/800x400/1a1b26/03defc?text=Ansuz+Code+Decoder)
+1. Upload code files (single files or entire project folders)
+2. Select a file from the explorer to trigger analysis
+3. View synchronized code blocks with explanations
+4. Click "Deep Dive" on any block for advanced analysis covering design patterns, trade-offs, and best practices
 
-## 🛠️ Tech Stack
+All explanations stream in real-time, with duplicate code blocks automatically detected and cached to reduce API usage.
 
-- **Frontend:** React 19, TypeScript, Tailwind CSS
-- **AI:** Google Gemini 2.5 Flash API
-- **Syntax Highlighting:** React Syntax Highlighter (Prism)
-- **Markdown:** React Markdown
-- **Build Tool:** Vite
+## Prerequisites
 
-## 🎯 How It Works
+- Node.js 18+
+- [Google Gemini API key](https://aistudio.google.com/app/apikey)
 
-1. **Upload** your code files (single files or entire project folders)
-2. **Analyze** - AI breaks down your code into logical blocks with explanations
-3. **Explore** - Hover over code blocks to see synchronized explanations
-4. **Deep Dive** - Click for advanced analysis of design patterns and trade-offs
-
-## 🏃‍♂️ Quick Start
-
-### Prerequisites
-
-- Node.js 18+ 
-- A [Google AI Studio API key](https://aistudio.google.com/app/apikey)
-
-### Local Development
+## Local Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/chraltro/ansuz.git
 cd ansuz
-
-# Install dependencies
 npm install
 
-# Set up your environment
-cp .env.local.example .env.local
-# Edit .env.local and add your GEMINI_API_KEY
+# Add your API key to .env.local
+echo "VITE_GEMINI_API_KEY=your_key_here" > .env.local
 
-# Start development server
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) to view the app.
+Open [http://localhost:5173](http://localhost:5173)
 
-### Getting Your Gemini API Key
+## Tech Stack
 
-1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Sign in with your Google account
-3. Click "Create API Key"
-4. Copy the key and add it to your `.env.local` file
+- React 19 with TypeScript
+- Vite build tool
+- Tailwind CSS
+- Gemini 2.5 Flash API
+- React Syntax Highlighter (Prism)
+- React Markdown
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ansuz/
-├── components/           # React components
-│   ├── CodeExplainerView.tsx
-│   ├── FileExplorer.tsx
-│   ├── WelcomeScreen.tsx
-│   └── icons/           # SVG icon components
-├── services/            # API services
-│   └── geminiService.ts # Gemini AI integration
-├── types.ts            # TypeScript type definitions
-├── App.tsx             # Main application component
-└── index.tsx           # Application entry point
+├── components/
+│   ├── CodeExplainerView.tsx    # Main explanation display
+│   ├── FileExplorer.tsx          # File tree navigation
+│   ├── WelcomeScreen.tsx         # Project upload interface
+│   └── icons/                    # SVG icon components
+├── services/
+│   └── geminiService.ts          # API integration with streaming
+├── types.ts                      # TypeScript definitions
+└── App.tsx                       # Root component
 ```
 
-## 🎨 Features in Detail
+## Supported Languages
 
-### Smart Code Analysis
-The AI analyzes your code and breaks it down into logical blocks, explaining:
-- What each section does
-- Why it's structured that way
-- How different parts work together
+JavaScript, TypeScript, Python, Java, HTML, CSS, JSON, Markdown, and most common programming languages supported by Prism.
 
-### Deep Dive Mode
-For advanced users, get insights into:
-- **Design Patterns** - Identify architectural patterns in use
-- **Trade-offs** - Understand why code was written a certain way
-- **Best Practices** - Learn about potential improvements
-- **Context** - How code fits into larger applications
-
-### Multi-file Support
-- Upload entire project folders
-- Navigate through file explorer
-- Batch analyze all files
-- Visual processing status indicators
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env.local` file with:
-
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-### Supported File Types
-
-- JavaScript (.js, .jsx)
-- TypeScript (.ts, .tsx)  
-- Python (.py)
-- Java (.java)
-- HTML (.html)
-- CSS (.css)
-- JSON (.json)
-- Markdown (.md)
-
-## 🚀 Deployment
-
-### Deploy to GitHub Pages
-
-This project is configured for easy GitHub Pages deployment:
+## Deployment
 
 ```bash
-# Build for production
 npm run build
-
-# Deploy to GitHub Pages (if using gh-pages)
-npm run deploy
 ```
 
-## 🤝 Contributing
+The build output in `dist/` can be deployed to any static hosting service.
 
-Contributions are welcome! Here's how to get started:
+## License
 
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
-
-### Development Guidelines
-
-- Follow TypeScript best practices
-- Use existing component patterns
-- Add proper error handling
-- Include JSDoc comments for complex functions
-- Test thoroughly with different file types
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [Google Gemini](https://ai.google.dev/) for the powerful AI API
-- [React Syntax Highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter) for beautiful code display
-- [Tailwind CSS](https://tailwindcss.com/) for the styling system
-- [Lucide React](https://lucide.dev/) for the icon set
-
+MIT

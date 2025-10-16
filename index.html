@@ -66,6 +66,25 @@
     font-family: 'Cinzel', serif;
     letter-spacing: 0.02em;
   }
+
+  /* Wayfinder Logo Link */
+  .wayfinder-link {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+    opacity: 0.6;
+    transition: all 0.2s ease;
+  }
+  .wayfinder-link:hover {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  .wayfinder-link img {
+    width: 48px;
+    height: 48px;
+    display: block;
+  }
 </style>
   <script type="importmap">
 {
@@ -85,6 +104,11 @@
   <link rel="stylesheet" crossorigin href="/ansuz/assets/index-C4SPBCkT.css">
 </head>
   <body class="bg-gray-900 text-blue-light font-sans">
+    <!-- Wayfinder Logo Link -->
+    <a href="../wayfinder/index.html" class="wayfinder-link" title="Back to Wayfinder">
+      <img src="../wayfinder/wayfinder_logo.svg" alt="Wayfinder" />
+    </a>
+
     <div id="root"></div>
 </body>
 </html>

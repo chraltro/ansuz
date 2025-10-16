@@ -432,8 +432,18 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen max-h-screen overflow-hidden text-sm">
-      <aside className="w-1/4 min-w-[300px] max-w-[450px] border-r border-gray-700">
+    <>
+      {/* Wayfinder Logo Link */}
+      <a
+        href="../wayfinder/index.html"
+        className="fixed bottom-5 right-5 z-[1000] opacity-60 hover:opacity-100 hover:scale-110 transition-all duration-200"
+        title="Back to Wayfinder"
+      >
+        <img src="../wayfinder/wayfinder_logo.svg" alt="Wayfinder" className="w-12 h-12 block" />
+      </a>
+
+      <div className="flex h-screen max-h-screen overflow-hidden text-sm">
+        <aside className="w-1/4 min-w-[300px] max-w-[450px] border-r border-gray-700">
         <Suspense fallback={
           <div className="flex items-center justify-center h-32 text-gray-500">
             <SpinnerIcon className="w-8 h-8" />
@@ -481,6 +491,7 @@ const App: React.FC = () => {
         )}
       </main>
     </div>
+    </>
   );
 };
 

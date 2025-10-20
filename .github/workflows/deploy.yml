@@ -37,10 +37,10 @@ jobs:
     - name: Setup Pages
       uses: actions/configure-pages@v4
 
-    - name: Upload artifact (root)
+    - name: Upload artifact (dist)
       uses: actions/upload-pages-artifact@v3
       with:
-        path: './'
+        path: './dist'
 
     - name: Deploy to GitHub Pages
       id: deployment

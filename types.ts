@@ -14,3 +14,18 @@ export interface ExplanationBlock {
 export interface Explanation {
   blocks: ExplanationBlock[];
 }
+
+// History types for GitHub Gists
+export interface HistoryEntry {
+  id: string;
+  timestamp: string;
+  projectName: string;
+  fileTree: FileNode;
+  explanationsCache: Record<string, Explanation>;
+  fileSummaries: Record<string, string>;
+  projectSummary: string;
+}
+
+export interface HistoryData {
+  entries: HistoryEntry[];
+}

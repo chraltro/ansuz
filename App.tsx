@@ -5,7 +5,8 @@ import WelcomeScreen from './components/WelcomeScreen';
 import type { ProcessingStatus } from './components/FileExplorer';
 import { explainFileInBulk, explainSnippetStream, generateProjectSummary, generateAllSummariesStream } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
-import ApiKeyScreen from './components/ApiKeyScreen';
+import LoginScreen from './components/LoginScreen';
+import { getAssetPath } from './utils/paths';
 
 // Lazy load heavy components with large dependencies
 const FileExplorer = lazy(() => import('./components/FileExplorer'));
@@ -73,11 +74,13 @@ export type SummaryStatus = 'summarizing' | 'done';
 const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(() => {
-    if (process.env.API_KEY) {
-        return process.env.API_KEY;
-    }
-    return localStorage.getItem('gemini_api_key');
+    // Always require Firebase auth in dev - comment out to use env variable
+    // if (process.env.API_KEY) {
+    //     return process.env.API_KEY;
+    // }
+    return null;
   });
+  const [authError, setAuthError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const [explanationsCache, setExplanationsCache] = useState<Map<string, Explanation>>(new Map());
   const [processingStatus, setProcessingStatus] = useState<Map<string, ProcessingStatus>>(new Map());
@@ -112,13 +115,23 @@ const App: React.FC = () => {
     return allFiles.filter(file => !explanationsCache.has(file.path)).length;
   }, [fileTree, explanationsCache]);
 
-  const handleApiKeySubmit = (newApiKey: string) => {
+  const handleApiKeySubmit = (newApiKey: string, githubToken?: string) => {
     localStorage.setItem('gemini_api_key', newApiKey);
+    if (githubToken) {
+      localStorage.setItem('github_token', githubToken);
+    }
     setApiKey(newApiKey);
+    setAuthError(null);
+  };
+
+  const handleAuthError = (error: string) => {
+    setAuthError(error);
+    setTimeout(() => setAuthError(null), 5000); // Clear error after 5 seconds
   };
 
   const handleLogout = () => {
     localStorage.removeItem('gemini_api_key');
+    localStorage.removeItem('github_token');
     setApiKey(null);
     setFileTree(null);
     setSelectedFile(null);
@@ -424,11 +437,31 @@ const App: React.FC = () => {
   }
 
   if (!apiKey) {
-    return <ApiKeyScreen onApiKeySubmit={handleApiKeySubmit} />;
+    return (
+      <>
+        <LoginScreen onSuccess={handleApiKeySubmit} onError={handleAuthError} />
+        {authError && (
+          <div className="fixed top-4 right-4 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg z-50">
+            {authError}
+          </div>
+        )}
+      </>
+    );
   }
 
   if (!fileTree) {
-    return <WelcomeScreen onProjectReady={handleProjectReady} setIsLoading={setIsAppLoading} />;
+    return (
+      <>
+        <a
+          href="../wayfinder/index.html"
+          className="fixed bottom-5 right-5 z-[1000] opacity-60 hover:opacity-100 hover:scale-110 transition-all duration-200"
+          title="Back to Wayfinder"
+        >
+          <img src={getAssetPath('wayfinder_logo.svg')} alt="Wayfinder" className="w-12 h-12 block" />
+        </a>
+        <WelcomeScreen onProjectReady={handleProjectReady} setIsLoading={setIsAppLoading} />
+      </>
+    );
   }
 
   return (
@@ -439,7 +472,7 @@ const App: React.FC = () => {
         className="fixed bottom-5 right-5 z-[1000] opacity-60 hover:opacity-100 hover:scale-110 transition-all duration-200"
         title="Back to Wayfinder"
       >
-        <img src="../wayfinder/wayfinder_logo.svg" alt="Wayfinder" className="w-12 h-12 block" />
+        <img src={getAssetPath('wayfinder_logo.svg')} alt="Wayfinder" className="w-12 h-12 block" />
       </a>
 
       <div className="flex h-screen max-h-screen overflow-hidden text-sm">

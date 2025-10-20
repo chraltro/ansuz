@@ -1,6 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import type { FileNode } from '../types';
+import { getAssetPath } from '../utils/paths';
 
 const FILE_LIMIT = 25;
 
@@ -228,7 +229,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
     <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
       <div className="text-center p-10 border-2 border-dashed border-gray-700 rounded-2xl max-w-2xl w-full">
         <div className="flex items-center justify-center gap-4 mb-4">
-          <img src="ansuz/logo.svg" alt="Ansuz Logo" className="w-16 h-16" />
+          <img src={getAssetPath('logo.svg')} alt="Ansuz Logo" className="w-16 h-16" />
           <h1 className="text-4xl font-bold text-cyan-accent">Ansuz</h1>
         </div>
         <p className="text-lg text-gray-500 mb-8">

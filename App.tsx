@@ -74,8 +74,14 @@ export type SummaryStatus = 'summarizing' | 'done';
 const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(() => {
-    // Check for env variable first (for local dev with GEMINI_API_KEY set)
-    if (process.env.API_KEY) {
+    // Check localStorage first (from manual entry or Firebase auth)
+    const savedKey = localStorage.getItem('gemini_api_key');
+    if (savedKey) {
+        return savedKey;
+    }
+    // Then check for env variable (for local dev with GEMINI_API_KEY set)
+    // Only use this in development, not in production builds
+    if (import.meta.env.DEV && process.env.API_KEY) {
         return process.env.API_KEY;
     }
     // Otherwise require Firebase authentication

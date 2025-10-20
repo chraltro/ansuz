@@ -18,7 +18,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess, onError }) => {
     // Load Firebase
     const loadFirebase = async () => {
       try {
-        const { initFirebase } = await import('../../shared/firebase-auth.js');
+        const { initFirebase } = await import('../lib/firebase-auth.js');
         await initFirebase();
       } catch (err) {
         console.error('Failed to load Firebase:', err);
@@ -34,7 +34,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess, onError }) => {
     setStatus('Signing in with Google...');
 
     try {
-      const { signInWithGoogle, retrieveKeys } = await import('../../shared/firebase-auth.js');
+      const { signInWithGoogle, retrieveKeys } = await import('../lib/firebase-auth.js');
       await signInWithGoogle();
       setStatus('Checking for saved keys...');
 
@@ -72,7 +72,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onSuccess, onError }) => {
     setStatus('Saving keys...');
 
     try {
-      const { getCurrentUser, saveKeys } = await import('../../shared/firebase-auth.js');
+      const { getCurrentUser, saveKeys } = await import('../lib/firebase-auth.js');
       const user = getCurrentUser();
 
       if (user) {

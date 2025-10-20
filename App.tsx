@@ -74,10 +74,11 @@ export type SummaryStatus = 'summarizing' | 'done';
 const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileNode | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(() => {
-    // Always require Firebase auth in dev - comment out to use env variable
-    // if (process.env.API_KEY) {
-    //     return process.env.API_KEY;
-    // }
+    // Check for env variable first (for local dev with GEMINI_API_KEY set)
+    if (process.env.API_KEY) {
+        return process.env.API_KEY;
+    }
+    // Otherwise require Firebase authentication
     return null;
   });
   const [authError, setAuthError] = useState<string | null>(null);

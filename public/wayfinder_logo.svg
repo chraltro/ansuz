@@ -1,0 +1,59 @@
+<!-- Minimalist Vegvísir-Inspired Compass | Bronze on Dark/Transparent -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Minimalist Vegvísir compass">
+  <defs>
+    <style>
+      .bronze{fill:none;stroke:#d4a373}
+    </style>
+    <!-- Base stave pointing up (along -Y) with a clean crossbar near the tip -->
+    <g id="stave" class="bronze" stroke-linecap="square" stroke-linejoin="miter" stroke-width="20">
+      <!-- main arm -->
+      <path d="M0 0 V -184"/>
+      <!-- tip crossbar -->
+      <path d="M-20 -164 H 20"/>
+    </g>
+    <!-- Cardinal variant with an extra mid crossbar for subtle hierarchy -->
+    <g id="stave_cardinal" class="bronze" stroke-linecap="square" stroke-linejoin="miter" stroke-width="20">
+      <path d="M0 0 V -184"/>
+      <path d="M-20 -164 H 20"/>
+      <path d="M-16 -112 H 16"/>
+    </g>
+  </defs>
+
+  <!-- Centered group -->
+  <g transform="translate(256,256)">
+    <!-- Outer ring (wayfinding circle) -->
+    <circle class="bronze" r="220" stroke-width="14"/>
+
+    <!-- Inner hub -->
+    <circle class="bronze" r="22" stroke-width="14"/>
+
+    <!-- 8 directional staves (cardinals + diagonals) -->
+    <!-- Cardinals -->
+    <g transform="rotate(0)"><use href="#stave_cardinal"/></g>
+    <g transform="rotate(90)"><use href="#stave_cardinal"/></g>
+    <g transform="rotate(180)"><use href="#stave_cardinal"/></g>
+    <g transform="rotate(270)"><use href="#stave_cardinal"/></g>
+
+    <!-- Diagonals -->
+    <g transform="rotate(45)"><use href="#stave"/></g>
+    <g transform="rotate(135)"><use href="#stave"/></g>
+    <g transform="rotate(225)"><use href="#stave"/></g>
+    <g transform="rotate(315)"><use href="#stave"/></g>
+
+    <!-- Minimal runic ticks on the ring at 8 directions for Nordic geometry cue -->
+    <g class="bronze" stroke-width="10" stroke-linecap="square">
+      <!-- define a single tick protruding outward from the ring -->
+      <g id="tick">
+        <path d="M0 -220 v -10"/>
+      </g>
+      <g transform="rotate(0)"><use href="#tick"/></g>
+      <g transform="rotate(45)"><use href="#tick"/></g>
+      <g transform="rotate(90)"><use href="#tick"/></g>
+      <g transform="rotate(135)"><use href="#tick"/></g>
+      <g transform="rotate(180)"><use href="#tick"/></g>
+      <g transform="rotate(225)"><use href="#tick"/></g>
+      <g transform="rotate(270)"><use href="#tick"/></g>
+      <g transform="rotate(315)"><use href="#tick"/></g>
+    </g>
+  </g>
+</svg>

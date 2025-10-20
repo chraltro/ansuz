@@ -1,6 +1,6 @@
 
 import React, { useRef, useState } from 'react';
-import type { FileNode } from '../types';
+import type { FileNode, HistoryEntry } from '../types';
 import { getAssetPath } from '../utils/paths';
 
 const FILE_LIMIT = 25;
@@ -8,14 +8,17 @@ const FILE_LIMIT = 25;
 interface WelcomeScreenProps {
   onProjectReady: (files: FileNode) => void;
   setIsLoading: (isLoading: boolean) => void;
+  history?: HistoryEntry[];
+  onSelectHistory?: (entry: HistoryEntry) => void;
 }
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoading }) => {
+const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoading, history = [], onSelectHistory }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [showPasteArea, setShowPasteArea] = useState(false);
   const [pastedCode, setPastedCode] = useState('');
   const [fileName, setFileName] = useState('pasted-code');
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
 
   const handleUploadClick = (type: 'file' | 'folder') => {
     if (type === 'file') {
@@ -254,28 +257,73 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
         />
 
         {!showPasteArea ? (
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button
-                onClick={() => handleUploadClick('file')}
-                className="w-full sm:w-auto bg-blue-accent hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-blue-accent/20"
-              >
-                Select File(s)
-              </button>
-              <span className="text-gray-600 font-medium">OR</span>
-              <button
-                onClick={() => handleUploadClick('folder')}
-                className="w-full sm:w-auto bg-cyan-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-cyan-accent/20"
-              >
-                Select Folder
-              </button>
-              <span className="text-gray-600 font-medium">OR</span>
-              <button
-                onClick={handleShowPaste}
-                className="w-full sm:w-auto bg-orange-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-orange-accent/20"
-              >
-                Paste Code
-              </button>
-          </div>
+          <>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <button
+                  onClick={() => handleUploadClick('file')}
+                  className="w-full sm:w-auto bg-blue-accent hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-blue-accent/20"
+                >
+                  Select File(s)
+                </button>
+                <span className="text-gray-600 font-medium">OR</span>
+                <button
+                  onClick={() => handleUploadClick('folder')}
+                  className="w-full sm:w-auto bg-cyan-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-cyan-accent/20"
+                >
+                  Select Folder
+                </button>
+                <span className="text-gray-600 font-medium">OR</span>
+                <button
+                  onClick={handleShowPaste}
+                  className="w-full sm:w-auto bg-orange-accent hover:bg-opacity-80 text-gray-900 font-bold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg shadow-orange-accent/20"
+                >
+                  Paste Code
+                </button>
+            </div>
+
+            {/* History Dropdown */}
+            {history.length > 0 && onSelectHistory && (
+              <div className="mt-8 pt-6 border-t border-gray-700">
+                <button
+                  onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-medium">Recent Projects ({history.length})</span>
+                  <svg
+                    className={`w-4 h-4 transition-transform ${showHistoryDropdown ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {showHistoryDropdown && (
+                  <div className="mt-3 max-h-64 overflow-y-auto bg-gray-800 rounded-lg border border-gray-700">
+                    {history.map((entry) => (
+                      <button
+                        key={entry.id}
+                        onClick={() => {
+                          onSelectHistory(entry);
+                          setShowHistoryDropdown(false);
+                        }}
+                        className="w-full p-3 text-left hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-b-0"
+                      >
+                        <div className="text-sm font-medium text-white">{entry.projectName}</div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          {new Date(entry.timestamp).toLocaleDateString()} • {Object.keys(entry.explanationsCache || {}).length} files analyzed
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <div className="w-full space-y-4">
             <div className="text-left">

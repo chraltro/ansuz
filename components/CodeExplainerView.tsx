@@ -12,6 +12,7 @@ import SparklesIcon from './icons/SparklesIcon';
 import CopyIcon from './icons/CopyIcon';
 import CheckIcon from './icons/CheckIcon';
 import DownloadIcon from './icons/DownloadIcon';
+import SearchIcon from './icons/SearchIcon';
 
 interface CodeExplainerViewProps {
   explanation: Explanation | null;
@@ -98,6 +99,7 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [hoverSource, setHoverSource] = useState<'left' | 'right' | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const rightPaneRef = useRef<HTMLDivElement>(null);
   const streamingIndicatorRef = useRef<HTMLDivElement>(null);
@@ -166,6 +168,19 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
       ...block,
       blockIndex: index,
   })) ?? [], [explanation]);
+
+  const filteredSegments = useMemo(() => {
+    if (!searchQuery.trim()) return explanationSegments;
+
+    const query = searchQuery.toLowerCase();
+    return explanationSegments.filter(segment =>
+      segment.code_block.toLowerCase().includes(query) ||
+      segment.explanation.toLowerCase().includes(query) ||
+      (segment.deep_dive_explanation && segment.deep_dive_explanation.toLowerCase().includes(query))
+    );
+  }, [explanationSegments, searchQuery]);
+
+  const matchCount = filteredSegments.length;
 
   useEffect(() => {
     if (hoverSource === 'left' && hoveredIndex !== null && rightPaneRef.current) {
@@ -304,20 +319,43 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
       
       <div ref={rightPaneRef} className="col-span-1 h-full overflow-y-auto bg-gray-800 border-l border-gray-700">
          <div className="p-6 space-y-2 font-sans">
-            <div className="pb-4 mb-4 border-b border-gray-700 flex items-start justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-blue-light">Code Explanations</h2>
-                  <p className="text-sm text-gray-500">Hover over code on the left or an explanation below.</p>
+            <div className="pb-4 mb-4 border-b border-gray-700">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h2 className="text-xl font-bold text-blue-light">Code Explanations</h2>
+                    <p className="text-sm text-gray-500">Hover over code on the left or an explanation below.</p>
+                  </div>
+                  {explanation && explanation.blocks.length > 0 && (
+                    <button
+                      onClick={exportAsMarkdown}
+                      className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 rounded-md transition-colors"
+                      title="Export all explanations as Markdown"
+                    >
+                      <DownloadIcon className="w-4 h-4" />
+                      <span>Export MD</span>
+                    </button>
+                  )}
                 </div>
                 {explanation && explanation.blocks.length > 0 && (
-                  <button
-                    onClick={exportAsMarkdown}
-                    className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 rounded-md transition-colors"
-                    title="Export all explanations as Markdown"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    <span>Export MD</span>
-                  </button>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <SearchIcon className="w-4 h-4 text-gray-500" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search explanations..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-accent"
+                    />
+                    {searchQuery && (
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                        <span className="text-xs text-gray-500">
+                          {matchCount} {matchCount === 1 ? 'match' : 'matches'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 )}
             </div>
             
@@ -329,7 +367,7 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                 </div>
             )}
 
-            {explanationSegments.map((segment) => {
+            {filteredSegments.map((segment) => {
                const blockIndex = segment.blockIndex;
                const isDeepDiving = deepDiveStatus.isLoading && deepDiveStatus.blockIndex === blockIndex;
                const blockExplanation = segment.explanation || '';

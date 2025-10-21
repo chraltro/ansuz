@@ -9,6 +9,8 @@ import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { Explanation } from '../types';
 import SpinnerIcon from './icons/SpinnerIcon';
 import SparklesIcon from './icons/SparklesIcon';
+import CopyIcon from './icons/CopyIcon';
+import CheckIcon from './icons/CheckIcon';
 
 interface CodeExplainerViewProps {
   explanation: Explanation | null;
@@ -94,7 +96,8 @@ const findBlock = (source: string, blockFromAI: string, startIndex: number): { i
 const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLoading, fileName, code, onDeepDive, deepDiveStatus }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [hoverSource, setHoverSource] = useState<'left' | 'right' | null>(null);
-  
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
   const rightPaneRef = useRef<HTMLDivElement>(null);
   const streamingIndicatorRef = useRef<HTMLDivElement>(null);
 
@@ -227,6 +230,17 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
       };
   };
 
+  const copyToClipboard = async (blockIndex: number, codeBlock: string, explanation: string) => {
+    try {
+      const markdown = `## Code Block\n\n\`\`\`\n${codeBlock}\n\`\`\`\n\n## Explanation\n\n${explanation}`;
+      await navigator.clipboard.writeText(markdown);
+      setCopiedIndex(blockIndex);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+    }
+  };
+
   return (
     <div className="grid grid-cols-2 h-full font-mono">
       <div className="col-span-1 h-full overflow-auto bg-gray-900">
@@ -273,9 +287,9 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                     <div className="prose prose-invert max-w-none prose-sm prose-p:text-blue-light prose-p:mb-6 prose-headings:text-cyan-accent prose-strong:text-orange-accent prose-code:text-orange-accent prose-code:before:content-[''] prose-code:after:content-[''] prose-li:text-blue-light prose-li:my-3 prose-ul:my-6 prose-ol:my-6">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{blockExplanation.trim()}</ReactMarkdown>
                     </div>
-                    <div className="mt-3">
+                    <div className="mt-3 flex items-center gap-2">
                         {segment.deep_dive_explanation ? (
-                            <div className="mt-4 p-4 border-l-2 border-cyan-accent/50 bg-gray-900/30 rounded-r-lg">
+                            <div className="mt-4 p-4 border-l-2 border-cyan-accent/50 bg-gray-900/30 rounded-r-lg w-full">
                                 <h4 className="font-bold text-sm text-cyan-accent flex items-center mb-2">
                                     <SparklesIcon className="w-4 h-4 mr-2" />
                                     Deep Dive
@@ -296,6 +310,15 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                                 <span>{isDeepDiving ? 'Analyzing...' : 'Deep Dive'}</span>
                             </button>
                           )
+                        )}
+                        {blockExplanation.trim() && (
+                          <button
+                              onClick={() => copyToClipboard(blockIndex, segment.code_block, blockExplanation)}
+                              className="flex items-center space-x-2 text-sm text-gray-400 hover:text-white font-semibold py-1 px-2 rounded-md bg-gray-700/50 hover:bg-gray-700 opacity-0 group-hover:opacity-100 transition-all duration-300"
+                          >
+                              {copiedIndex === blockIndex ? <CheckIcon className="w-4 h-4" /> : <CopyIcon className="w-4 h-4" />}
+                              <span>{copiedIndex === blockIndex ? 'Copied!' : 'Copy'}</span>
+                          </button>
                         )}
                     </div>
                  </div>

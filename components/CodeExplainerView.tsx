@@ -100,9 +100,13 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
   const [hoverSource, setHoverSource] = useState<'left' | 'right' | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [currentBlockIndex, setCurrentBlockIndex] = useState<number | null>(null);
+  const [collapsedBlocks, setCollapsedBlocks] = useState<Set<number>>(new Set());
+  const [showHelp, setShowHelp] = useState<boolean>(false);
 
   const rightPaneRef = useRef<HTMLDivElement>(null);
   const streamingIndicatorRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const explanationRefs = useRef<(HTMLDivElement | null)[]>([]);
   const lineRefs = useRef<(HTMLElement | null)[]>([]);
@@ -196,6 +200,106 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
         }
     }
   }, [hoveredIndex, hoverSource, blockStartLines]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't capture keys when user is typing in search input
+      if (document.activeElement === searchInputRef.current) {
+        return;
+      }
+
+      const segments = filteredSegments;
+      if (segments.length === 0) return;
+
+      switch (e.key) {
+        case 'n':
+        case 'ArrowRight':
+          e.preventDefault();
+          setCurrentBlockIndex(prev => {
+            const newIndex = prev === null ? 0 : Math.min(prev + 1, segments.length - 1);
+            const blockIndex = segments[newIndex]?.blockIndex;
+            if (blockIndex !== undefined) {
+              explanationRefs.current[blockIndex]?.scrollIntoView(scrollOptions);
+            }
+            return newIndex;
+          });
+          break;
+
+        case 'p':
+        case 'ArrowLeft':
+          e.preventDefault();
+          setCurrentBlockIndex(prev => {
+            const newIndex = prev === null ? 0 : Math.max(prev - 1, 0);
+            const blockIndex = segments[newIndex]?.blockIndex;
+            if (blockIndex !== undefined) {
+              explanationRefs.current[blockIndex]?.scrollIntoView(scrollOptions);
+            }
+            return newIndex;
+          });
+          break;
+
+        case 'e':
+          e.preventDefault();
+          if (currentBlockIndex !== null && segments[currentBlockIndex]) {
+            const blockIndex = segments[currentBlockIndex].blockIndex;
+            const segment = segments[currentBlockIndex];
+
+            if (segment.deep_dive_explanation) {
+              // Toggle collapse state
+              setCollapsedBlocks(prev => {
+                const newSet = new Set(prev);
+                if (newSet.has(blockIndex)) {
+                  newSet.delete(blockIndex);
+                } else {
+                  newSet.add(blockIndex);
+                }
+                return newSet;
+              });
+            } else {
+              // Trigger deep dive
+              onDeepDive(blockIndex);
+            }
+          }
+          break;
+
+        case 'E':
+          e.preventDefault();
+          // Expand all: trigger deep dive for blocks without explanations, uncollapse all with explanations
+          setCollapsedBlocks(new Set());
+          segments.forEach(segment => {
+            if (!segment.deep_dive_explanation) {
+              onDeepDive(segment.blockIndex);
+            }
+          });
+          break;
+
+        case 'C':
+          e.preventDefault();
+          // Collapse all: hide all deep dive sections
+          const allBlockIndices = segments
+            .filter(s => s.deep_dive_explanation)
+            .map(s => s.blockIndex);
+          setCollapsedBlocks(new Set(allBlockIndices));
+          break;
+
+        case '?':
+          e.preventDefault();
+          setShowHelp(prev => !prev);
+          break;
+
+        case 'Escape':
+          if (showHelp) {
+            e.preventDefault();
+            setShowHelp(false);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredSegments, currentBlockIndex, showHelp, onDeepDive]);
 
   const codeLines = useMemo(() => code.split('\n'), [code]);
   const language = getLanguage(fileName);
@@ -342,6 +446,7 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                       <SearchIcon className="w-4 h-4 text-gray-500" />
                     </div>
                     <input
+                      ref={searchInputRef}
                       type="text"
                       placeholder="Search explanations..."
                       value={searchQuery}
@@ -367,10 +472,12 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                 </div>
             )}
 
-            {filteredSegments.map((segment) => {
+            {filteredSegments.map((segment, segmentIndex) => {
                const blockIndex = segment.blockIndex;
                const isDeepDiving = deepDiveStatus.isLoading && deepDiveStatus.blockIndex === blockIndex;
                const blockExplanation = segment.explanation || '';
+               const isCurrentBlock = currentBlockIndex === segmentIndex;
+               const isCollapsed = collapsedBlocks.has(blockIndex);
 
                return (
                  <div
@@ -378,13 +485,19 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                     ref={el => { if(typeof blockIndex === 'number') explanationRefs.current[blockIndex] = el; }}
                     onMouseEnter={() => { setHoverSource('right'); setHoveredIndex(blockIndex); }}
                     onMouseLeave={() => { setHoverSource(null); setHoveredIndex(null); }}
-                    className={`group p-4 rounded-lg transition-all duration-300 border ${hoveredIndex === blockIndex ? 'bg-gray-700/50 border-blue-accent/50' : 'bg-transparent border-transparent'}`}
+                    className={`group p-4 rounded-lg transition-all duration-300 border ${
+                      isCurrentBlock
+                        ? 'bg-gray-700/70 border-cyan-accent ring-2 ring-cyan-accent/30 shadow-lg shadow-cyan-accent/20'
+                        : hoveredIndex === blockIndex
+                          ? 'bg-gray-700/50 border-blue-accent/50'
+                          : 'bg-transparent border-transparent'
+                    }`}
                  >
                     <div className="prose prose-invert max-w-none prose-sm prose-p:text-blue-light prose-p:mb-6 prose-headings:text-cyan-accent prose-strong:text-orange-accent prose-code:text-orange-accent prose-code:before:content-[''] prose-code:after:content-[''] prose-li:text-blue-light prose-li:my-3 prose-ul:my-6 prose-ol:my-6">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{blockExplanation.trim()}</ReactMarkdown>
                     </div>
                     <div className="mt-3 flex items-center gap-2">
-                        {segment.deep_dive_explanation ? (
+                        {segment.deep_dive_explanation && !isCollapsed ? (
                             <div className="mt-4 p-4 border-l-2 border-cyan-accent/50 bg-gray-900/30 rounded-r-lg w-full">
                                 <h4 className="font-bold text-sm text-cyan-accent flex items-center mb-2">
                                     <SparklesIcon className="w-4 h-4 mr-2" />
@@ -398,12 +511,28 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                         ) : (
                           blockExplanation.trim() && (
                             <button
-                                onClick={() => onDeepDive(blockIndex)}
+                                onClick={() => {
+                                  if (segment.deep_dive_explanation && isCollapsed) {
+                                    setCollapsedBlocks(prev => {
+                                      const newSet = new Set(prev);
+                                      newSet.delete(blockIndex);
+                                      return newSet;
+                                    });
+                                  } else if (!segment.deep_dive_explanation) {
+                                    onDeepDive(blockIndex);
+                                  }
+                                }}
                                 disabled={deepDiveStatus.isLoading}
                                 className="flex items-center space-x-2 text-sm text-cyan-accent hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed font-semibold py-1 px-2 rounded-md bg-gray-700/50 hover:bg-gray-700 opacity-0 group-hover:opacity-100 transition-all duration-300"
                             >
                                 {isDeepDiving ? <SpinnerIcon className="w-4 h-4" /> : <SparklesIcon className="w-4 h-4" />}
-                                <span>{isDeepDiving ? 'Analyzing...' : 'Deep Dive'}</span>
+                                <span>
+                                  {isDeepDiving
+                                    ? 'Analyzing...'
+                                    : segment.deep_dive_explanation && isCollapsed
+                                      ? 'Expand'
+                                      : 'Deep Dive'}
+                                </span>
                             </button>
                           )
                         )}
@@ -432,6 +561,62 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
                 </div>
             )}
          </div>
+
+         {showHelp && (
+           <div
+             className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             onClick={() => setShowHelp(false)}
+           >
+             <div
+               className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md shadow-2xl"
+               onClick={(e) => e.stopPropagation()}
+             >
+               <h3 className="text-lg font-bold text-cyan-accent mb-4">Keyboard Shortcuts</h3>
+               <div className="space-y-3 text-sm">
+                 <div className="flex justify-between items-center">
+                   <span className="text-gray-400">Navigate next block</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">n</kbd>
+                   <span className="text-gray-500">or</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">→</kbd>
+                 </div>
+                 <div className="flex justify-between items-center">
+                   <span className="text-gray-400">Navigate previous block</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">p</kbd>
+                   <span className="text-gray-500">or</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">←</kbd>
+                 </div>
+                 <div className="flex justify-between items-center">
+                   <span className="text-gray-400">Toggle deep dive</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">e</kbd>
+                 </div>
+                 <div className="flex justify-between items-center">
+                   <span className="text-gray-400">Expand all deep dives</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">Shift+E</kbd>
+                 </div>
+                 <div className="flex justify-between items-center">
+                   <span className="text-gray-400">Collapse all deep dives</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">Shift+C</kbd>
+                 </div>
+                 <div className="flex justify-between items-center">
+                   <span className="text-gray-400">Show/hide this help</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">?</kbd>
+                 </div>
+                 <div className="flex justify-between items-center">
+                   <span className="text-gray-400">Close help</span>
+                   <kbd className="px-2 py-1 bg-gray-700 rounded border border-gray-600 text-gray-200 font-mono">Esc</kbd>
+                 </div>
+               </div>
+               <div className="mt-4 pt-4 border-t border-gray-700">
+                 <button
+                   onClick={() => setShowHelp(false)}
+                   className="w-full px-4 py-2 bg-cyan-accent hover:bg-cyan-accent/80 text-gray-900 font-semibold rounded transition-colors"
+                 >
+                   Close
+                 </button>
+               </div>
+             </div>
+           </div>
+         )}
       </div>
     </div>
   );

@@ -511,16 +511,17 @@ const App: React.FC = () => {
   const handleSelectFile = useCallback((file: FileNode) => {
     if (file.path !== selectedFile?.path) {
       setSelectedFile(file);
-      fetchAndCacheExplanation(file, explanationLevel);
+      // Don't auto-fetch - let user choose the level
     }
-  }, [selectedFile, fetchAndCacheExplanation, explanationLevel]);
+  }, [selectedFile]);
 
-  // Trigger analysis when explanation level changes for selected file
-  useEffect(() => {
+  const handleLevelChange = useCallback((level: ExplanationLevel) => {
+    setExplanationLevel(level);
+    // Trigger analysis if this level doesn't exist yet
     if (selectedFile) {
-      fetchAndCacheExplanation(selectedFile, explanationLevel);
+      fetchAndCacheExplanation(selectedFile, level);
     }
-  }, [explanationLevel, selectedFile, fetchAndCacheExplanation]);
+  }, [selectedFile, fetchAndCacheExplanation]);
 
   const handleProcessAll = useCallback(() => {
     if (!fileTree) return;
@@ -747,19 +748,27 @@ const App: React.FC = () => {
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-400 font-medium">Explanation Level:</span>
               <div className="flex gap-2">
-                {(['beginner', 'intermediate', 'expert'] as ExplanationLevel[]).map((level) => (
-                  <button
-                    key={level}
-                    onClick={() => setExplanationLevel(level)}
-                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
-                      explanationLevel === level
-                        ? 'bg-cyan-accent text-gray-900'
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'
-                    }`}
-                  >
-                    {level.charAt(0).toUpperCase() + level.slice(1)}
-                  </button>
-                ))}
+                {(['beginner', 'intermediate', 'expert'] as ExplanationLevel[]).map((level) => {
+                  const levelMap = selectedFile ? explanationsCache.get(selectedFile.path) : null;
+                  const isCached = levelMap?.has(level) ?? false;
+                  const isActive = explanationLevel === level;
+
+                  return (
+                    <button
+                      key={level}
+                      onClick={() => handleLevelChange(level)}
+                      className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                        isActive
+                          ? 'bg-cyan-accent text-gray-900'
+                          : isCached
+                            ? 'bg-gray-600 text-gray-200 hover:bg-gray-500 hover:text-white'
+                            : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-white'
+                      }`}
+                    >
+                      {level.charAt(0).toUpperCase() + level.slice(1)}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

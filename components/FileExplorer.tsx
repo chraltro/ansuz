@@ -2,12 +2,13 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { FileNode, HistoryEntry } from '../types';
+import type { FileNode, HistoryEntry, Explanation } from '../types';
 import FileIcon from './icons/FileIcon';
 import FolderIcon from './icons/FolderIcon';
 import SpinnerIcon from './icons/SpinnerIcon';
 import CheckIcon from './icons/CheckIcon';
 import type { SummaryStatus } from '../App';
+import type { ExplanationLevel } from '../services/geminiService';
 
 export type ProcessingStatus = 'idle' | 'processing' | 'done';
 
@@ -29,6 +30,8 @@ interface FileExplorerProps {
   activeHistoryId: string | null;
   onSelectHistory: (entry: HistoryEntry) => void;
   onClearHistory: () => void;
+  explanationLevel: ExplanationLevel;
+  explanationsCache: Map<string, Map<ExplanationLevel, Explanation>>;
 }
 
 interface FileExplorerContentProps {
@@ -42,10 +45,12 @@ interface FileExplorerContentProps {
   history?: HistoryEntry[];
   activeHistoryId?: string | null;
   onSelectHistory?: (entry: HistoryEntry) => void;
+  explanationLevel: ExplanationLevel;
+  explanationsCache: Map<string, Map<ExplanationLevel, Explanation>>;
 }
 
 
-const FileExplorerContent: React.FC<FileExplorerContentProps> = ({ node, selectedFile, onSelectFile, processingStatus, fileSummaries, summaryStatus, depth = 0, history, activeHistoryId, onSelectHistory }) => {
+const FileExplorerContent: React.FC<FileExplorerContentProps> = ({ node, selectedFile, onSelectFile, processingStatus, fileSummaries, summaryStatus, depth = 0, history, activeHistoryId, onSelectHistory, explanationLevel, explanationsCache }) => {
     const [isOpen, setIsOpen] = useState(depth < 2);
     const isDirectory = node.children && node.children.length > 0;
 
@@ -90,6 +95,8 @@ const FileExplorerContent: React.FC<FileExplorerContentProps> = ({ node, selecte
                                 history={history}
                                 activeHistoryId={activeHistoryId}
                                 onSelectHistory={onSelectHistory}
+                                explanationLevel={explanationLevel}
+                                explanationsCache={explanationsCache}
                             />
                         ))}
                     </div>
@@ -100,7 +107,19 @@ const FileExplorerContent: React.FC<FileExplorerContentProps> = ({ node, selecte
 
     // It's a file
     const isSelected = selectedFile?.path === node.path;
-    const explanationStatus = processingStatus.get(node.path) ?? 'idle';
+
+    // Check if this file has been analyzed for the current level
+    const levelMap = explanationsCache.get(node.path);
+    const hasExplanationForLevel = levelMap?.has(explanationLevel) ?? false;
+    const isProcessing = processingStatus.get(node.path) === 'processing';
+
+    // Determine status based on current level
+    const explanationStatus: ProcessingStatus = isProcessing
+      ? 'processing'
+      : hasExplanationForLevel
+        ? 'done'
+        : 'idle';
+
     const summaryStatusVal = summaryStatus.get(node.path);
     const summary = fileSummaries.get(node.path);
     
@@ -132,7 +151,7 @@ const FileExplorerContent: React.FC<FileExplorerContentProps> = ({ node, selecte
 }
 
 const FileExplorer: React.FC<FileExplorerProps> = (props) => {
-    const { node, selectedFile, onSelectFile, onProcessAll, processingStatus, isProcessingQueueActive, processingQueueLength, remainingFilesToProcess, fileSummaries, summaryStatus, projectSummary, isProjectSummaryLoading, onLogout, history, activeHistoryId, onSelectHistory, onClearHistory } = props;
+    const { node, selectedFile, onSelectFile, onProcessAll, processingStatus, isProcessingQueueActive, processingQueueLength, remainingFilesToProcess, fileSummaries, summaryStatus, projectSummary, isProjectSummaryLoading, onLogout, history, activeHistoryId, onSelectHistory, onClearHistory, explanationLevel, explanationsCache } = props;
     const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
     
     const getButtonText = () => {
@@ -217,6 +236,8 @@ const FileExplorer: React.FC<FileExplorerProps> = (props) => {
                     history={history}
                     activeHistoryId={activeHistoryId}
                     onSelectHistory={onSelectHistory}
+                    explanationLevel={explanationLevel}
+                    explanationsCache={explanationsCache}
                  />
             </div>
 

@@ -717,6 +717,8 @@ const App: React.FC = () => {
             activeHistoryId={activeHistoryId}
             onSelectHistory={handleSelectHistory}
             onClearHistory={handleClearHistory}
+            explanationLevel={explanationLevel}
+            explanationsCache={explanationsCache}
           />
         </Suspense>
       </aside>

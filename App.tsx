@@ -396,14 +396,20 @@ const App: React.FC = () => {
     });
 
     try {
+        console.log(`🚀 Starting explanation stream for ${file.name} at ${level} level`);
         const stream = await explainFileInBulk(file.name, file.content, apiKey, level);
-        
+
         let buffer = '';
         const blocks: ExplanationBlock[] = [];
         let duplicatesFound = 0;
         let newExplanations = 0;
-        
+        let chunkCount = 0;
+
         for await (const chunk of stream) {
+            chunkCount++;
+            if (chunkCount === 1) {
+                console.log(`📥 First chunk received for ${file.name}`);
+            }
             if (chunk.text) {
                 buffer += chunk.text;
                 const lines = buffer.split('\n');
@@ -486,15 +492,33 @@ const App: React.FC = () => {
             }
         }
         
-        // Log cache usage stats
+        // Log completion stats
+        console.log(`✅ Stream completed for ${file.name}: ${chunkCount} chunks received, ${blocks.length} blocks parsed`);
         if (duplicatesFound > 0 || newExplanations > 0) {
             console.log(`📋 Explanation cache stats for ${file.name}: ${newExplanations} new explanations, ${duplicatesFound} reused from cache`);
         }
-        
+
+        if (blocks.length === 0) {
+            console.warn(`⚠️ No blocks were parsed from the stream for ${file.name}. Buffer content:`, buffer);
+        }
+
     } catch (error) {
-      console.error(`Error fetching explanation for ${file.name}:`, error);
-      const errorMessage = `Failed to analyze file. ${handleApiError(error, apiKey, setApiKey)}`;
-      
+      console.error(`❌ Error fetching explanation for ${file.name}:`, error);
+
+      // Extract detailed error information
+      let errorDetails = 'Unknown error';
+      if (error instanceof Error) {
+        errorDetails = error.message;
+        console.error(`Error message: ${error.message}`);
+        console.error(`Error stack:`, error.stack);
+      } else {
+        console.error(`Non-Error object thrown:`, error);
+        errorDetails = String(error);
+      }
+
+      const genericMessage = handleApiError(error, apiKey, setApiKey);
+      const errorMessage = `Failed to analyze file.\n\n**Error:** ${errorDetails}\n\n**Suggestion:** ${genericMessage}`;
+
       setExplanationsCache(prev => {
           const newCache = new Map(prev);
           const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
@@ -575,11 +599,23 @@ const App: React.FC = () => {
               });
           }
       } catch (error) {
-          console.error("Deep dive failed:", error);
+          console.error("❌ Deep dive failed:", error);
           if (!selectedFile) return;
 
-          const errorMessage = `**Deep Dive Failed:** ${handleApiError(error, apiKey, setApiKey)}`;
-          
+          // Extract detailed error information
+          let errorDetails = 'Unknown error';
+          if (error instanceof Error) {
+            errorDetails = error.message;
+            console.error(`Deep dive error message: ${error.message}`);
+            console.error(`Deep dive error stack:`, error.stack);
+          } else {
+            console.error(`Deep dive non-Error object thrown:`, error);
+            errorDetails = String(error);
+          }
+
+          const genericMessage = handleApiError(error, apiKey, setApiKey);
+          const errorMessage = `**Deep Dive Failed**\n\n**Error:** ${errorDetails}\n\n**Suggestion:** ${genericMessage}`;
+
           setExplanationsCache(prev => {
               const newCache = new Map(prev);
               const levelMap = newCache.get(selectedFile.path);

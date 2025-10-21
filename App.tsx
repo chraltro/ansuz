@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspens
 import type { FileNode, Explanation, ExplanationBlock, HistoryEntry } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 import type { ProcessingStatus } from './components/FileExplorer';
-import { explainFileInBulk, explainSnippetStream, generateProjectSummary, generateAllSummariesStream } from './services/geminiService';
+import { explainFileInBulk, explainSnippetStream, generateProjectSummary, generateAllSummariesStream, type ExplanationLevel } from './services/geminiService';
 import SpinnerIcon from './components/icons/SpinnerIcon';
 import LoginScreen from './components/LoginScreen';
 import { getAssetPath } from './utils/paths';
@@ -110,6 +110,12 @@ const App: React.FC = () => {
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [githubToken, setGithubToken] = useState<string | null>(() => localStorage.getItem('github_token'));
 
+  // Explanation level preference
+  const [explanationLevel, setExplanationLevel] = useState<ExplanationLevel>(() => {
+    const saved = localStorage.getItem('explanation_level');
+    return (saved === 'beginner' || saved === 'expert') ? saved : 'intermediate';
+  });
+
   // Ref to track the last saved project to prevent duplicate saves
   const lastSavedProjectRef = useRef<string | null>(null);
 
@@ -145,6 +151,11 @@ const App: React.FC = () => {
     setAuthError(error);
     setTimeout(() => setAuthError(null), 5000); // Clear error after 5 seconds
   };
+
+  // Save explanation level preference
+  useEffect(() => {
+    localStorage.setItem('explanation_level', explanationLevel);
+  }, [explanationLevel]);
 
   const handleLogout = () => {
     localStorage.removeItem('gemini_api_key');
@@ -369,7 +380,7 @@ const App: React.FC = () => {
     setExplanationsCache(prev => new Map(prev).set(file.path, { blocks: [] }));
 
     try {
-        const stream = await explainFileInBulk(file.name, file.content, apiKey);
+        const stream = await explainFileInBulk(file.name, file.content, apiKey, explanationLevel);
         
         let buffer = '';
         const blocks: ExplanationBlock[] = [];
@@ -670,7 +681,27 @@ const App: React.FC = () => {
       </aside>
 
       {/* Code Explainer View */}
-      <main className="w-3/4 flex-grow bg-gray-900">
+      <main className="w-3/4 flex-grow bg-gray-900 flex flex-col">
+        {/* Explanation Level Selector */}
+        {fileTree && (
+          <div className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-end gap-3">
+            <label htmlFor="explanation-level" className="text-sm text-gray-400 font-medium">
+              Explanation Level:
+            </label>
+            <select
+              id="explanation-level"
+              value={explanationLevel}
+              onChange={(e) => setExplanationLevel(e.target.value as ExplanationLevel)}
+              className="bg-gray-700 text-gray-200 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-accent"
+            >
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="expert">Expert</option>
+            </select>
+          </div>
+        )}
+
+        <div className="flex-grow overflow-hidden">
         {selectedFile ? (
           <Suspense fallback={
             <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -692,6 +723,7 @@ const App: React.FC = () => {
                 <p>Select a file from the explorer to begin analysis.<br/>You can hover over files to see a brief summary.</p>
             </div>
         )}
+        </div>
       </main>
     </div>
     </>

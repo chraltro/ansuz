@@ -11,6 +11,7 @@ import SpinnerIcon from './icons/SpinnerIcon';
 import SparklesIcon from './icons/SparklesIcon';
 import CopyIcon from './icons/CopyIcon';
 import CheckIcon from './icons/CheckIcon';
+import DownloadIcon from './icons/DownloadIcon';
 
 interface CodeExplainerViewProps {
   explanation: Explanation | null;
@@ -241,6 +242,51 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
     }
   };
 
+  const exportAsMarkdown = () => {
+    if (!explanation || explanation.blocks.length === 0) return;
+
+    const markdown = [
+      `# Code Explanation: ${fileName}`,
+      '',
+      `Generated on: ${new Date().toLocaleString()}`,
+      '',
+      '---',
+      '',
+      ...explanation.blocks.flatMap((block, index) => [
+        `## Block ${index + 1}`,
+        '',
+        '### Code',
+        '',
+        '```' + language,
+        block.code_block,
+        '```',
+        '',
+        '### Explanation',
+        '',
+        block.explanation,
+        '',
+        ...(block.deep_dive_explanation ? [
+          '### Deep Dive Analysis',
+          '',
+          block.deep_dive_explanation,
+          ''
+        ] : []),
+        '---',
+        ''
+      ])
+    ].join('\n');
+
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName.replace(/\.[^/.]+$/, '')}-explanation-${new Date().toISOString().split('T')[0]}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="grid grid-cols-2 h-full font-mono">
       <div className="col-span-1 h-full overflow-auto bg-gray-900">
@@ -258,9 +304,21 @@ const CodeExplainerView: React.FC<CodeExplainerViewProps> = ({ explanation, isLo
       
       <div ref={rightPaneRef} className="col-span-1 h-full overflow-y-auto bg-gray-800 border-l border-gray-700">
          <div className="p-6 space-y-2 font-sans">
-            <div className="pb-4 mb-4 border-b border-gray-700">
-                <h2 className="text-xl font-bold text-blue-light">Code Explanations</h2>
-                <p className="text-sm text-gray-500">Hover over code on the left or an explanation below.</p>
+            <div className="pb-4 mb-4 border-b border-gray-700 flex items-start justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-blue-light">Code Explanations</h2>
+                  <p className="text-sm text-gray-500">Hover over code on the left or an explanation below.</p>
+                </div>
+                {explanation && explanation.blocks.length > 0 && (
+                  <button
+                    onClick={exportAsMarkdown}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 rounded-md transition-colors"
+                    title="Export all explanations as Markdown"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    <span>Export MD</span>
+                  </button>
+                )}
             </div>
             
             {showInitialLoading && (

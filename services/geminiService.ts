@@ -6,6 +6,8 @@ import type { Explanation, ExplanationBlock } from "../types";
 const MODEL_NAME = "gemini-2.5-flash";
 const FILE_LIMIT = 25;
 
+export type ExplanationLevel = 'beginner' | 'intermediate' | 'expert';
+
 // Common utility functions
 const validateApiKey = (apiKey: string) => {
     if (!apiKey) {
@@ -16,6 +18,72 @@ const validateApiKey = (apiKey: string) => {
 const createAI = (apiKey: string) => {
     validateApiKey(apiKey);
     return new GoogleGenAI({ apiKey });
+};
+
+const getStreamingSystemInstruction = (level: ExplanationLevel): string => {
+    const baseRules = `**CRITICAL STREAMING FORMAT:**
+You MUST respond by streaming explanations as individual JSON objects, one per line:
+{"code_block": "exact verbatim code snippet", "explanation": "markdown explanation"}
+{"code_block": "next exact verbatim code snippet", "explanation": "markdown explanation"}
+...
+
+**CRITICAL RESPONSE FORMAT RULES:**
+1. **ONE JSON OBJECT PER LINE:** Each code block and explanation pair must be a separate JSON object on its own line.
+2. **VERBATIM CODE:** The "code_block" value MUST be an exact, verbatim, character-for-character copy of a snippet from the original file.
+3. **SEQUENTIAL & NON-REPEATING:** Process the file sequentially from top to bottom. Once you explain a code block, DO NOT include it again.
+
+**EXPLANATION & MARKDOWN STYLE RULES:**
+- **MANDATORY Markdown:** All "explanation" values must be in well-formatted Markdown.
+- **NO TABLES:** You MUST NOT use markdown tables. Use bulleted lists instead.
+- **Paragraphs are REQUIRED:** Break up ideas into separate paragraphs (blank lines).
+- **Correct Spacing for Lists:** Insert a blank line before starting any bulleted or numbered list.
+- **Bulleted Lists for Enumerations:** Use bulleted lists (\`* item\`) for multiple items.
+- **Bold for Emphasis:** Use **bold text** to highlight key terms.`;
+
+    if (level === 'beginner') {
+        return `You are a friendly code tutor explaining code to someone new to programming. Your task is to analyze the provided code and generate clear, simple, block-by-block explanations for beginners.
+
+${baseRules}
+
+**BEGINNER-LEVEL EXPLANATION STYLE:**
+- Use simple, everyday language (avoid jargon where possible)
+- Explain basic programming concepts (e.g., "A variable is like a box that stores a value")
+- Break down complex logic into small, digestible steps
+- Mention what the code does AND why it might be useful
+- Use analogies when helpful
+- Don't assume prior knowledge of the language or framework
+
+**EXAMPLE OUTPUT:**
+{"code_block": "const name = 'John';", "explanation": "This creates a **variable** called \`name\` which stores the text 'John'.\\n\\nThink of a variable like a labeled box where you can keep information to use later in your program."}
+{"code_block": "if (age > 18) {\\n  console.log('Adult');\\n}", "explanation": "This is a **conditional statement** that checks if the age is greater than 18.\\n\\nIf the condition is true (the person is older than 18), it prints 'Adult' to the console. The console is like a text output window where developers can see messages."}`;
+    }
+
+    if (level === 'expert') {
+        return `You are a senior software engineer providing detailed technical analysis for experienced developers. Your task is to analyze the provided code with a focus on design patterns, architecture, and advanced concepts.
+
+${baseRules}
+
+**EXPERT-LEVEL EXPLANATION STYLE:**
+- Assume strong programming fundamentals
+- Identify design patterns, architectural decisions, and paradigms
+- Discuss trade-offs, performance implications, and alternatives
+- Mention edge cases, potential bugs, or code smells
+- Reference best practices and modern standards
+- Analyze why specific approaches were chosen
+- Suggest improvements where relevant
+
+**EXAMPLE OUTPUT:**
+{"code_block": "const memoizedSelector = useMemo(() => createSelector(...), [deps]);", "explanation": "Implements **memoization** via React's \`useMemo\` hook to cache the selector creation.\\n\\n**Design Decision:** This prevents unnecessary re-creation of the selector on each render, optimizing performance when \`deps\` remain stable.\\n\\n**Trade-off:** Adds memory overhead for the cached value but eliminates redundant computation. Alternative approaches include \`useCallback\` for function refs or external memoization libraries like Reselect."}`;
+    }
+
+    // Default: intermediate (current behavior)
+    return `You are an expert software engineer acting as a code tutor. Your task is to analyze the provided code and generate concise, block-by-block explanations.
+
+${baseRules}
+
+**EXAMPLE OUTPUT:**
+{"code_block": "function example(name, options) {\\n  // ...\\n}", "explanation": "This function \`example\` sets up a new component.\\n\\nIt accepts the following parameters:\\n\\n*   **name**: The unique identifier\\n*   **options**: Configuration object"}
+{"code_block": "const result = process(data);", "explanation": "This line processes the input data and stores the result.\\n\\n**Important:** The process function handles validation internally."}`;
 };
 
 const bulkSystemInstruction = `You are an expert software engineer acting as a code tutor. Your task is to analyze the provided code and generate concise, block-by-block explanations in a single JSON object.
@@ -45,46 +113,23 @@ const bulkSystemInstruction = `You are an expert software engineer acting as a c
 }
 `;
 
-export const explainFileInBulk = (fileName: string, code: string, apiKey: string) => {
+export const explainFileInBulk = (fileName: string, code: string, apiKey: string, level: ExplanationLevel = 'intermediate') => {
     const ai = createAI(apiKey);
-  
+
     if (!code.trim()) {
       return Promise.resolve({ blocks: [{ code_block: "// This file is empty.", explanation: "There is no code in this file to analyze." }]});
     }
-    
-    console.log(`🤖 API Call: Streaming bulk explanation for file "${fileName}" (${code.length} characters)`);
-    
-    const streamingSystemInstruction = `You are an expert software engineer acting as a code tutor. Your task is to analyze the provided code and generate concise, block-by-block explanations.
 
-**CRITICAL STREAMING FORMAT:**
-You MUST respond by streaming explanations as individual JSON objects, one per line:
-{"code_block": "exact verbatim code snippet", "explanation": "markdown explanation"}
-{"code_block": "next exact verbatim code snippet", "explanation": "markdown explanation"}
-...
+    console.log(`🤖 API Call: Streaming bulk explanation for file "${fileName}" (${code.length} characters) at ${level} level`);
 
-**CRITICAL RESPONSE FORMAT RULES:**
-1. **ONE JSON OBJECT PER LINE:** Each code block and explanation pair must be a separate JSON object on its own line.
-2. **VERBATIM CODE:** The "code_block" value MUST be an exact, verbatim, character-for-character copy of a snippet from the original file.
-3. **SEQUENTIAL & NON-REPEATING:** Process the file sequentially from top to bottom. Once you explain a code block, DO NOT include it again.
-
-**EXPLANATION & MARKDOWN STYLE RULES:**
-- **MANDATORY Markdown:** All "explanation" values must be in well-formatted Markdown.
-- **NO TABLES:** You MUST NOT use markdown tables. Use bulleted lists instead.
-- **Paragraphs are REQUIRED:** Break up ideas into separate paragraphs (blank lines).
-- **Correct Spacing for Lists:** Insert a blank line before starting any bulleted or numbered list.
-- **Bulleted Lists for Enumerations:** Use bulleted lists (\`* item\`) for multiple items.
-- **Bold for Emphasis:** Use **bold text** to highlight key terms.
-
-**EXAMPLE OUTPUT:**
-{"code_block": "function example(name, options) {\\n  // ...\\n}", "explanation": "This function \`example\` sets up a new component.\\n\\nIt accepts the following parameters:\\n\\n*   **name**: The unique identifier\\n*   **options**: Configuration object"}
-{"code_block": "const result = process(data);", "explanation": "This line processes the input data and stores the result.\\n\\n**Important:** The process function handles validation internally."}`;
+    const streamingSystemInstruction = getStreamingSystemInstruction(level);
 
     return ai.models.generateContentStream({
         model: MODEL_NAME,
         contents: `Analyze the following code from the file \`${fileName}\`:\n\n---\n${code}\n---`,
         config: {
             systemInstruction: streamingSystemInstruction,
-            temperature: 0.2,
+            temperature: level === 'expert' ? 0.3 : 0.2,
         }
     });
 };

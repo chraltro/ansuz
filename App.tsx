@@ -90,7 +90,7 @@ const App: React.FC = () => {
   });
   const [authError, setAuthError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const [explanationsCache, setExplanationsCache] = useState<Map<string, Explanation>>(new Map());
+  const [explanationsCache, setExplanationsCache] = useState<Map<string, Map<ExplanationLevel, Explanation>>>(new Map());
   const [processingStatus, setProcessingStatus] = useState<Map<string, ProcessingStatus>>(new Map());
   const [processingQueue, setProcessingQueue] = useState<FileNode[]>([]);
   const [isAppLoading, setIsAppLoading] = useState<boolean>(false);
@@ -121,8 +121,9 @@ const App: React.FC = () => {
 
   const currentExplanation = useMemo(() => {
     if (!selectedFile) return null;
-    return explanationsCache.get(selectedFile.path) ?? null;
-  }, [selectedFile, explanationsCache]);
+    const levelMap = explanationsCache.get(selectedFile.path);
+    return levelMap?.get(explanationLevel) ?? null;
+  }, [selectedFile, explanationsCache, explanationLevel]);
 
   const isExplanationLoading = useMemo(() => {
       if (!selectedFile) return false;
@@ -134,8 +135,11 @@ const App: React.FC = () => {
   const remainingFilesToProcess = useMemo(() => {
     if (!fileTree) return 0;
     const allFiles = getAllFiles(fileTree);
-    return allFiles.filter(file => !explanationsCache.has(file.path)).length;
-  }, [fileTree, explanationsCache]);
+    return allFiles.filter(file => {
+      const levelMap = explanationsCache.get(file.path);
+      return !levelMap?.has(explanationLevel);
+    }).length;
+  }, [fileTree, explanationsCache, explanationLevel]);
 
   const handleApiKeySubmit = (newApiKey: string, newGithubToken?: string) => {
     localStorage.setItem('gemini_api_key', newApiKey);
@@ -371,16 +375,28 @@ const App: React.FC = () => {
     }
   }, [generateSummaries]);
 
- const fetchAndCacheExplanation = useCallback(async (file: FileNode) => {
-    if (!file.content || !apiKey || processingStatus.get(file.path) === 'done' || processingStatus.get(file.path) === 'processing') {
+ const fetchAndCacheExplanation = useCallback(async (file: FileNode, level: ExplanationLevel) => {
+    // Check if we already have this level cached
+    const levelMap = explanationsCache.get(file.path);
+    if (levelMap?.has(level)) {
+      return; // Already have this level
+    }
+
+    if (!file.content || !apiKey || processingStatus.get(file.path) === 'processing') {
       return;
     }
 
     setProcessingStatus(prev => new Map(prev).set(file.path, 'processing'));
-    setExplanationsCache(prev => new Map(prev).set(file.path, { blocks: [] }));
+    setExplanationsCache(prev => {
+      const newCache = new Map(prev);
+      const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
+      levelMap.set(level, { blocks: [] });
+      newCache.set(file.path, levelMap);
+      return newCache;
+    });
 
     try {
-        const stream = await explainFileInBulk(file.name, file.content, apiKey, explanationLevel);
+        const stream = await explainFileInBulk(file.name, file.content, apiKey, level);
         
         let buffer = '';
         const blocks: ExplanationBlock[] = [];
@@ -421,7 +437,9 @@ const App: React.FC = () => {
                                 // Update UI with new block immediately
                                 setExplanationsCache(prev => {
                                     const newCache = new Map(prev);
-                                    newCache.set(file.path, { blocks: [...blocks] });
+                                    const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
+                                    levelMap.set(level, { blocks: [...blocks] });
+                                    newCache.set(file.path, levelMap);
                                     return newCache;
                                 });
                             }
@@ -457,7 +475,9 @@ const App: React.FC = () => {
                     
                     setExplanationsCache(prev => {
                         const newCache = new Map(prev);
-                        newCache.set(file.path, { blocks: [...blocks] });
+                        const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
+                        levelMap.set(level, { blocks: [...blocks] });
+                        newCache.set(file.path, levelMap);
                         return newCache;
                     });
                 }
@@ -477,32 +497,45 @@ const App: React.FC = () => {
       
       setExplanationsCache(prev => {
           const newCache = new Map(prev);
+          const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
           const block = { code_block: `// Error for ${file.name}`, explanation: errorMessage };
-          newCache.set(file.path, { blocks: [block] });
+          levelMap.set(level, { blocks: [block] });
+          newCache.set(file.path, levelMap);
           return newCache;
       });
     } finally {
       setProcessingStatus(prev => new Map(prev).set(file.path, 'done'));
     }
-  }, [processingStatus, apiKey, globalBlockCache]);
+  }, [processingStatus, apiKey, globalBlockCache, explanationsCache]);
 
   const handleSelectFile = useCallback((file: FileNode) => {
     if (file.path !== selectedFile?.path) {
       setSelectedFile(file);
-      fetchAndCacheExplanation(file);
+      fetchAndCacheExplanation(file, explanationLevel);
     }
-  }, [selectedFile, fetchAndCacheExplanation]);
+  }, [selectedFile, fetchAndCacheExplanation, explanationLevel]);
+
+  // Trigger analysis when explanation level changes for selected file
+  useEffect(() => {
+    if (selectedFile) {
+      fetchAndCacheExplanation(selectedFile, explanationLevel);
+    }
+  }, [explanationLevel, selectedFile, fetchAndCacheExplanation]);
 
   const handleProcessAll = useCallback(() => {
     if (!fileTree) return;
-    const allFiles = getAllFiles(fileTree).filter(file => !explanationsCache.has(file.path));
+    const allFiles = getAllFiles(fileTree).filter(file => {
+      const levelMap = explanationsCache.get(file.path);
+      return !levelMap?.has(explanationLevel);
+    });
     setProcessingQueue(allFiles);
-  }, [fileTree, explanationsCache]);
+  }, [fileTree, explanationsCache, explanationLevel]);
 
   const handleDeepDive = async (blockIndex: number) => {
       if (!selectedFile || !apiKey || deepDiveStatus.isLoading) return;
 
-      const explanation = explanationsCache.get(selectedFile.path);
+      const levelMap = explanationsCache.get(selectedFile.path);
+      const explanation = levelMap?.get(explanationLevel);
       const block = explanation?.blocks[blockIndex];
 
       if (!block) return;
@@ -514,11 +547,13 @@ const App: React.FC = () => {
           
           setExplanationsCache(prev => {
               const newCache = new Map(prev);
-              const currentExpl = newCache.get(selectedFile.path);
-              if (currentExpl) {
+              const levelMap = newCache.get(selectedFile.path);
+              const currentExpl = levelMap?.get(explanationLevel);
+              if (currentExpl && levelMap) {
                   const newBlocks = [...currentExpl.blocks];
                   newBlocks[blockIndex] = { ...newBlocks[blockIndex], deep_dive_explanation: '' };
-                  newCache.set(selectedFile.path, { ...currentExpl, blocks: newBlocks });
+                  levelMap.set(explanationLevel, { ...currentExpl, blocks: newBlocks });
+                  newCache.set(selectedFile.path, levelMap);
               }
               return newCache;
           });
@@ -526,12 +561,14 @@ const App: React.FC = () => {
           for await (const chunk of stream) {
               setExplanationsCache(prev => {
                   const newCache = new Map(prev);
-                  const currentExpl = newCache.get(selectedFile.path);
-                  if (currentExpl) {
+                  const levelMap = newCache.get(selectedFile.path);
+                  const currentExpl = levelMap?.get(explanationLevel);
+                  if (currentExpl && levelMap) {
                       const newBlocks = [...currentExpl.blocks];
                       const currentBlock = newBlocks[blockIndex];
                       newBlocks[blockIndex] = { ...currentBlock, deep_dive_explanation: (currentBlock.deep_dive_explanation || '') + chunk.text };
-                      newCache.set(selectedFile.path, { ...currentExpl, blocks: newBlocks });
+                      levelMap.set(explanationLevel, { ...currentExpl, blocks: newBlocks });
+                      newCache.set(selectedFile.path, levelMap);
                   }
                   return newCache;
               });
@@ -544,11 +581,13 @@ const App: React.FC = () => {
           
           setExplanationsCache(prev => {
               const newCache = new Map(prev);
-              const currentExpl = newCache.get(selectedFile.path);
-              if (currentExpl) {
+              const levelMap = newCache.get(selectedFile.path);
+              const currentExpl = levelMap?.get(explanationLevel);
+              if (currentExpl && levelMap) {
                   const newBlocks = [...currentExpl.blocks];
                   newBlocks[blockIndex] = { ...newBlocks[blockIndex], deep_dive_explanation: errorMessage };
-                  newCache.set(selectedFile.path, { ...currentExpl, blocks: newBlocks });
+                  levelMap.set(explanationLevel, { ...currentExpl, blocks: newBlocks });
+                  newCache.set(selectedFile.path, levelMap);
               }
               return newCache;
           });
@@ -562,17 +601,18 @@ const App: React.FC = () => {
 
     const fileToProcess = processingQueue[0];
 
-    // Skip files that are already processing or already have explanations
-    if (processingStatus.get(fileToProcess.path) === 'processing' || explanationsCache.has(fileToProcess.path)) {
+    // Skip files that are already processing or already have this level
+    const levelMap = explanationsCache.get(fileToProcess.path);
+    if (processingStatus.get(fileToProcess.path) === 'processing' || levelMap?.has(explanationLevel)) {
       setProcessingQueue(prev => prev.slice(1));
       return;
     }
 
-    fetchAndCacheExplanation(fileToProcess).then(() => {
+    fetchAndCacheExplanation(fileToProcess, explanationLevel).then(() => {
       setProcessingQueue(prev => prev.slice(1));
     });
 
-  }, [processingQueue, fetchAndCacheExplanation, processingStatus, explanationsCache]);
+  }, [processingQueue, fetchAndCacheExplanation, processingStatus, explanationsCache, explanationLevel]);
 
   // Auto-save to history when all processing is complete
   useEffect(() => {
@@ -682,22 +722,46 @@ const App: React.FC = () => {
 
       {/* Code Explainer View */}
       <main className="w-3/4 flex-grow bg-gray-900 flex flex-col">
-        {/* Explanation Level Selector */}
+        {/* Header with Back Button and Explanation Level Selector */}
         {fileTree && (
-          <div className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-end gap-3">
-            <label htmlFor="explanation-level" className="text-sm text-gray-400 font-medium">
-              Explanation Level:
-            </label>
-            <select
-              id="explanation-level"
-              value={explanationLevel}
-              onChange={(e) => setExplanationLevel(e.target.value as ExplanationLevel)}
-              className="bg-gray-700 text-gray-200 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-accent"
+          <div className="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-between gap-3">
+            <button
+              onClick={() => {
+                setFileTree(null);
+                setSelectedFile(null);
+                setExplanationsCache(new Map());
+                setProcessingStatus(new Map());
+                setProcessingQueue([]);
+                setFileSummaries(new Map());
+                setProjectSummary('');
+                setSummaryStatus(new Map());
+              }}
+              className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 rounded-md transition-colors flex items-center gap-2"
             >
-              <option value="beginner">Beginner</option>
-              <option value="intermediate">Intermediate</option>
-              <option value="expert">Expert</option>
-            </select>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Upload New File
+            </button>
+
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-400 font-medium">Explanation Level:</span>
+              <div className="flex gap-2">
+                {(['beginner', 'intermediate', 'expert'] as ExplanationLevel[]).map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => setExplanationLevel(level)}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                      explanationLevel === level
+                        ? 'bg-cyan-accent text-gray-900'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'
+                    }`}
+                  >
+                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

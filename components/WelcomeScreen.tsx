@@ -2,8 +2,7 @@
 import React, { useRef, useState } from 'react';
 import type { FileNode, HistoryEntry } from '../types';
 import { getAssetPath } from '../utils/paths';
-
-const FILE_LIMIT = 25;
+import { validateAndFilterFiles, validatePastedContent, validateFileContent, FILE_LIMITS } from '../utils/fileValidation';
 
 interface WelcomeScreenProps {
   onProjectReady: (files: FileNode) => void;
@@ -31,28 +30,50 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = event.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
-    
-    // Check file limit
-    if (selectedFiles.length > FILE_LIMIT) {
-      alert(`Error: Too many files selected (${selectedFiles.length}). This tool supports up to ${FILE_LIMIT} files at once. Please select fewer files or break your upload into smaller batches.`);
+
+    // Validate and filter files
+    const validation = await validateAndFilterFiles(selectedFiles);
+
+    if (validation.errors.length > 0) {
+      alert(`Upload Error:\n\n${validation.errors.join('\n')}`);
       if(event.target) {
         event.target.value = '';
       }
       return;
     }
-    
+
+    // Show warnings if any
+    if (validation.warnings.length > 0) {
+      const proceed = confirm(`Warning:\n\n${validation.warnings.join('\n')}\n\nDo you want to continue?`);
+      if (!proceed) {
+        if(event.target) {
+          event.target.value = '';
+        }
+        return;
+      }
+    }
+
     setIsLoading(true);
 
     const root: FileNode = { name: 'root', content: null, children: [], path: '' };
     const filePromises: Promise<void>[] = [];
+    const contentWarnings: string[] = [];
 
-    for (const file of Array.from(selectedFiles)) {
+    for (const file of validation.files) {
         const path = (file as any).webkitRelativePath || file.name;
         const parts = path.split('/').filter(p => p);
         
         const filePromise = new Promise<void>((resolve, reject) => {
              const reader = new FileReader();
              reader.onload = (e) => {
+                const content = e.target?.result as string;
+
+                // Validate content
+                const contentValidation = validateFileContent(content, file.name);
+                if (contentValidation.warnings) {
+                  contentWarnings.push(...contentValidation.warnings);
+                }
+
                 let currentNode = root;
                 parts.forEach((part, index) => {
                     let childNode = currentNode.children.find(c => c.name === part);
@@ -60,7 +81,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
                         const isLastPart = index === parts.length - 1;
                         childNode = {
                             name: part,
-                            content: isLastPart ? (e.target?.result as string) : null,
+                            content: isLastPart ? content : null,
                             children: [],
                             path: parts.slice(0, index + 1).join('/'),
                         };
@@ -78,10 +99,18 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
 
     try {
         await Promise.all(filePromises);
+
+        // Show content warnings if any
+        if (contentWarnings.length > 0) {
+          console.warn('File content warnings:', contentWarnings);
+          // Show first warning to user, log the rest
+          alert(`Note: ${contentWarnings[0]}\n\nCheck console for additional warnings.`);
+        }
+
         onProjectReady(root);
     } catch(error) {
         console.error("Error reading files:", error);
-        // Add user-facing error handling here
+        alert(`Error reading files: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
     } finally {
         setIsLoading(false);
         // Reset file input value to allow re-uploading the same file/folder
@@ -186,15 +215,22 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
 
   const handlePasteSubmit = () => {
     if (!pastedCode.trim()) return;
-    
+
+    // Validate pasted content
+    const contentValidation = validatePastedContent(pastedCode);
+    if (!contentValidation.isValid) {
+      alert(`Validation Error:\n\n${contentValidation.error}`);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       const parsedFiles = parseMultiFileContent(pastedCode);
-      
-      // Check if we exceed the 25-file limit
-      if (parsedFiles.length > FILE_LIMIT) {
-        alert(`Error: Too many files parsed (${parsedFiles.length}). This tool supports up to ${FILE_LIMIT} files at once. Please split your content into smaller batches.`);
+
+      // Check if we exceed the file limit
+      if (parsedFiles.length > FILE_LIMITS.MAX_FILES) {
+        alert(`Error: Too many files parsed (${parsedFiles.length}). This tool supports up to ${FILE_LIMITS.MAX_FILES} files at once. Please split your content into smaller batches.`);
         return;
       }
       

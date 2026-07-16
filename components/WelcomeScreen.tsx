@@ -121,24 +121,22 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
   };
 
   const parseMultiFileContent = (content: string): FileNode[] => {
-    // Check for Claude Code format first (------ filepath ------)
-    // Must have exactly 6 dashes on each side and contain a file path (with . or /)
-    const claudePattern = /^------\s+([^\s].*?[./][^\s]*.*?)\s+------\s*\n/gm;
-    const claudeMatches = Array.from(content.matchAll(claudePattern));
-    
-    if (claudeMatches.length > 0) {
-      // Claude Code format
+    // Ruled headers: exactly six dashes either side of a path (------ src/app.ts ------)
+    const ruledHeader = /^------\s+([^\s].*?[./][^\s]*.*?)\s+------\s*\n/gm;
+    const ruledMatches = Array.from(content.matchAll(ruledHeader));
+
+    if (ruledMatches.length > 0) {
       const files: FileNode[] = [];
-      
-      claudeMatches.forEach((match, index) => {
+
+      ruledMatches.forEach((match, index) => {
         const filepath = match[1].trim();
         const filename = filepath.split('/').pop() || filepath;
         const startIndex = match.index! + match[0].length;
         
         // Find the end of this file's content (start of next file or end of string)
         let endIndex = content.length;
-        if (index < claudeMatches.length - 1) {
-          endIndex = claudeMatches[index + 1].index!;
+        if (index < ruledMatches.length - 1) {
+          endIndex = ruledMatches[index + 1].index!;
         }
         
         // Extract content and remove code block markers if present
@@ -382,8 +380,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
               </label>
               <div className="mb-2 text-xs text-gray-400">
                 <strong>Single file:</strong> Just paste your code<br/>
-                <strong>Multiple files:</strong> Use Claude Code format: <code className="bg-gray-700 px-1 rounded">------ filepath ------</code> followed by code block<br/>
-                <strong>Legacy:</strong> Also supports <code className="bg-gray-700 px-1 rounded">### `filename.ext`</code> format
+                <strong>Multiple files:</strong> Separate each with <code className="bg-gray-700 px-1 rounded">------ filepath ------</code> followed by a code block<br/>
+                <strong>Also supported:</strong> <code className="bg-gray-700 px-1 rounded">### `filename.ext`</code> headings
               </div>
               <textarea
                 id="code-paste"
@@ -391,13 +389,12 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onProjectReady, setIsLoad
                 onChange={(e) => setPastedCode(e.target.value)}
                 placeholder={`Single file: Just paste your code here...
 
-Multiple files (Claude Code format):
------- .claude/file.json ------
+Multiple files:
+------ src/config.json ------
 \`\`\`\`\`\`
 {
-  "permissions": {
-    "allow": ["Bash(npm install)"]
-  }
+  "retries": 3,
+  "timeout": 5000
 }
 \`\`\`\`\`\`
 
@@ -408,7 +405,7 @@ export const Button = () => {
 };
 \`\`\`\`\`\`
 
-Legacy format also supported:
+Also supported:
 ### \`main.js\`
 \`\`\`javascript
 console.log('Hello');

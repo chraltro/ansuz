@@ -1,85 +1,110 @@
 # Ansuz - Code Explainer
 
-A code analysis tool that generates detailed explanations for source files using the Gemini API. Named after the Norse rune of knowledge and communication.
+A code analysis tool that generates explanations for source files using the Gemini API. Named after the Norse rune of knowledge and communication.
+
+Live at [chraltro.github.io/ansuz](https://chraltro.github.io/ansuz).
 
 ## Features
 
-- Block-by-block code explanations with streaming responses
-- Deep dive mode for architectural analysis and design patterns
-- Multi-file project support with tree navigation
-- File hover previews showing brief summaries
-- Syntax highlighting for multiple languages
-- Batch processing with progress tracking
-- Client-side caching to avoid duplicate API calls
+- Block-by-block explanations, streamed as they are generated
+- Three explanation levels (beginner, intermediate, expert), cached per file so you can switch between them
+- Deep dive on any block for design patterns, trade-offs, and alternatives
+- Upload single files or whole folders, with a file tree and per-file summaries on hover
+- Project summary generated from the individual file summaries
+- Batch processing of every file in the tree, with progress in the explorer
+- History of past sessions, stored in localStorage and optionally synced to a private GitHub Gist
+- Sign in with Google (Firebase) to store your API keys, or enter them manually per browser
+- Syntax highlighting via Prism
+- Repeated code blocks are hashed and explained once, then reused
 
-## Live Demo
+## Sign-in
 
-[chraltro.github.io/ansuz](https://chraltro.github.io/ansuz)
+The deployed app opens on a login screen. Two ways past it:
 
-## How It Works
+- **Sign in with Google.** Keys are encrypted and stored in Firestore against your account, so they follow you between browsers.
+- **Enter keys manually.** Click through to manual entry and paste a Gemini key (and optionally a GitHub token). Keys go to localStorage for that browser only. No Firebase account needed.
 
-1. Upload code files (single files or entire project folders)
-2. Select a file from the explorer to trigger analysis
-3. View synchronized code blocks with explanations
-4. Click "Deep Dive" on any block for advanced analysis covering design patterns, trade-offs, and best practices
+Either way you supply your own Gemini key. There is no shared or bundled key.
 
-All explanations stream in real-time, with duplicate code blocks automatically detected and cached to reduce API usage.
+The GitHub token is optional and only used to sync history to a Gist. Without it, history stays in localStorage.
 
 ## Prerequisites
 
-- Node.js 18+
-- [Google Gemini API key](https://aistudio.google.com/app/apikey)
+- Node.js 20+ (the deploy workflow builds on 20)
+- A [Gemini API key](https://aistudio.google.com/app/apikey)
 
-## Local Development
+## Local development
 
 ```bash
 git clone https://github.com/chraltro/ansuz.git
 cd ansuz
 npm install
-
-# Add your API key to .env.local
-echo "VITE_GEMINI_API_KEY=your_key_here" > .env.local
-
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173)
+Open http://localhost:5173 and enter your key through the login screen.
 
-## Tech Stack
+To skip the login screen during local development, put your key in `.env.local`:
 
-- React 19 with TypeScript
-- Vite build tool
-- Tailwind CSS
-- Gemini 2.5 Flash API
-- React Syntax Highlighter (Prism)
-- React Markdown
+```bash
+echo "GEMINI_API_KEY=your_key_here" > .env.local
+```
 
-## Project Structure
+The variable is `GEMINI_API_KEY`, not `VITE_GEMINI_API_KEY`. `vite.config.ts` maps it to `process.env.API_KEY` explicitly. This shortcut only applies to dev builds; production always goes through the login screen.
+
+## Scripts
+
+```bash
+npm run dev        # dev server
+npm run build      # production build to dist/
+npm run preview    # serve the built output
+npm run typecheck  # tsc --noEmit
+```
+
+## Tech stack
+
+- React 19, TypeScript, Vite
+- Gemini 2.5 Flash (`@google/genai`)
+- Firebase auth + Firestore for key storage
+- react-syntax-highlighter (Prism), react-markdown
+
+Tailwind is loaded from the CDN script in `index.html` and configured inline there, rather than being a build dependency. It works, but it means no tree-shaking and no plugin ecosystem. Moving it into the build is a worthwhile cleanup that nobody has done yet.
+
+## Project structure
 
 ```
 ansuz/
+├── App.tsx                     # root component, cache and queue logic
+├── types.ts                    # shared types
+├── index.html                  # entry, Tailwind CDN config, theme vars
+├── src/
+│   └── main.tsx                # React entry point
 ├── components/
-│   ├── CodeExplainerView.tsx    # Main explanation display
-│   ├── FileExplorer.tsx          # File tree navigation
-│   ├── WelcomeScreen.tsx         # Project upload interface
-│   └── icons/                    # SVG icon components
+│   ├── CodeExplainerView.tsx   # explanation display
+│   ├── FileExplorer.tsx        # file tree, history, summaries
+│   ├── WelcomeScreen.tsx       # upload interface
+│   ├── LoginScreen.tsx         # Google sign-in and manual key entry
+│   ├── ErrorBoundary.tsx
+│   └── icons/
 ├── services/
-│   └── geminiService.ts          # API integration with streaming
-├── types.ts                      # TypeScript definitions
-└── App.tsx                       # Root component
+│   ├── geminiService.ts        # Gemini calls and streaming
+│   └── gistService.ts          # history persistence
+├── lib/
+│   ├── firebase-auth.js        # sign-in, key storage
+│   ├── firebase-config.js      # public web config
+│   └── crypto.js               # key encryption before Firestore
+├── utils/
+│   ├── analytics.ts
+│   ├── fileValidation.ts       # size and type limits on upload
+│   └── paths.ts                # asset paths across dev and Pages base
+└── public/                     # theme.css, logos
 ```
-
-## Supported Languages
-
-JavaScript, TypeScript, Python, Java, HTML, CSS, JSON, Markdown, and most common programming languages supported by Prism.
 
 ## Deployment
 
-```bash
-npm run build
-```
+Pushing to `main` triggers `.github/workflows/deploy.yml`, which typechecks, builds, and publishes `dist/` to GitHub Pages. Nothing built is committed to the repo.
 
-The build output in `dist/` can be deployed to any static hosting service.
+The production base path is `/ansuz/`, set in `vite.config.ts`. If you fork this under a different repo name, change it there.
 
 ## License
 

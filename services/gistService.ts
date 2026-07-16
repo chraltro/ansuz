@@ -80,7 +80,6 @@ async function createAnsuzGist(githubToken: string, historyData: HistoryData): P
     }
 
     const gist: Gist = await response.json();
-    console.log('✓ Ansuz history gist created:', gist.id);
     return gist.id;
   } catch (error) {
     console.error('Error creating Ansuz gist:', error);
@@ -113,7 +112,6 @@ async function updateGist(githubToken: string, gistId: string, historyData: Hist
       throw new Error(`Failed to update gist: ${response.status}`);
     }
 
-    console.log('✓ Ansuz history gist updated');
   } catch (error) {
     console.error('Error updating gist:', error);
     throw error;
@@ -161,7 +159,6 @@ async function getFileContent(file: GistFile | undefined): Promise<string | null
  */
 export async function loadHistoryFromGist(githubToken: string): Promise<HistoryEntry[]> {
   if (!githubToken) {
-    console.log('No GitHub token provided, skipping gist load');
     return [];
   }
 
@@ -169,7 +166,6 @@ export async function loadHistoryFromGist(githubToken: string): Promise<HistoryE
     const gistId = await findAnsuzGist(githubToken);
 
     if (!gistId) {
-      console.log('No Ansuz history gist found');
       return [];
     }
 
@@ -188,12 +184,10 @@ export async function loadHistoryFromGist(githubToken: string): Promise<HistoryE
     const fileContent = await getFileContent(gist.files[GIST_FILENAME]);
 
     if (!fileContent) {
-      console.log('No history data found in gist');
       return [];
     }
 
     const historyData: HistoryData = JSON.parse(fileContent);
-    console.log(`✓ Loaded ${historyData.entries.length} history entries from gist`);
     return historyData.entries;
   } catch (error) {
     console.error('Error loading history from gist:', error);
@@ -206,7 +200,6 @@ export async function loadHistoryFromGist(githubToken: string): Promise<HistoryE
  */
 export async function saveHistoryToGist(githubToken: string, entries: HistoryEntry[]): Promise<void> {
   if (!githubToken) {
-    console.log('No GitHub token provided, skipping gist save');
     return;
   }
 
@@ -220,7 +213,6 @@ export async function saveHistoryToGist(githubToken: string, entries: HistoryEnt
       await createAnsuzGist(githubToken, historyData);
     }
 
-    console.log(`✓ Saved ${entries.length} history entries to gist`);
   } catch (error) {
     console.error('Error saving history to gist:', error);
     throw new Error('Failed to save history to GitHub. Changes saved locally only.');

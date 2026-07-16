@@ -6,10 +6,9 @@
   "homepage": "https://chraltro.github.io/ansuz",
   "scripts": {
     "dev": "cross-env ROLLUP_DISABLE_NATIVE=1 vite",
-    "build": "node scripts/safe-build.js",
+    "build": "cross-env ROLLUP_DISABLE_NATIVE=1 vite build",
     "preview": "cross-env ROLLUP_DISABLE_NATIVE=1 vite preview",
-    "predeploy": "npm run build",
-    "deploy": "node scripts/publish-to-root.js && git add -A && git commit -m \"Deploy site\" || echo Skipping commit && git push"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.13.0",

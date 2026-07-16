@@ -1,8 +1,7 @@
-# Ansuz (Code Explainer) - Project-specific .gitignore
-
 # Build outputs
 dist/
 build/
+/assets/
 
 # Dependencies
 node_modules/
@@ -12,7 +11,7 @@ node_modules/
 .env.*.local
 !.env.local.example
 
-# IDE
+# IDE / tooling
 .vscode/
 .idea/
 *.swp

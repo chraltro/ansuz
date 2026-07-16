@@ -7,12 +7,11 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
-    # Add this environment configuration
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    
+
     permissions:
       contents: read
       pages: write
@@ -25,11 +24,14 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'  # Changed from 18 to 20 to fix the engine warning
+        node-version: '20'
         cache: 'npm'
 
     - name: Install dependencies
       run: npm ci
+
+    - name: Typecheck
+      run: npm run typecheck
 
     - name: Build
       run: npm run build

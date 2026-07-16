@@ -15,13 +15,19 @@ export interface Explanation {
   blocks: ExplanationBlock[];
 }
 
+export type ExplanationLevel = 'beginner' | 'intermediate' | 'expert';
+
+// Serialized shape of the in-memory Map<path, Map<level, Explanation>>. Both
+// levels of nesting have to be plain objects to survive JSON.stringify.
+export type SerializedExplanations = Record<string, Partial<Record<ExplanationLevel, Explanation>>>;
+
 // History types for GitHub Gists
 export interface HistoryEntry {
   id: string;
   timestamp: string;
   projectName: string;
   fileTree: FileNode;
-  explanationsCache: Record<string, Explanation>;
+  explanationsCache: SerializedExplanations;
   fileSummaries: Record<string, string>;
   projectSummary: string;
 }

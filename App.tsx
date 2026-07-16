@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
-import type { FileNode, Explanation, ExplanationBlock, HistoryEntry } from './types';
+import type { FileNode, Explanation, ExplanationBlock, HistoryEntry, SerializedExplanations } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 import type { ProcessingStatus } from './components/FileExplorer';
 import { explainFileInBulk, explainSnippetStream, generateProjectSummary, generateAllSummariesStream, type ExplanationLevel } from './services/geminiService';
@@ -12,6 +12,38 @@ import { loadHistoryFromGist, saveHistoryToGist, loadHistoryFromLocalStorage, sa
 // Lazy load heavy components with large dependencies
 const FileExplorer = lazy(() => import('./components/FileExplorer'));
 const CodeExplainerView = lazy(() => import('./components/CodeExplainerView'));
+
+type ExplanationsCache = Map<string, Map<ExplanationLevel, Explanation>>;
+
+const LEVELS: ExplanationLevel[] = ['beginner', 'intermediate', 'expert'];
+
+const serializeExplanations = (cache: ExplanationsCache): SerializedExplanations => {
+    const out: SerializedExplanations = {};
+    for (const [path, levelMap] of cache) {
+        out[path] = Object.fromEntries(levelMap) as Partial<Record<ExplanationLevel, Explanation>>;
+    }
+    return out;
+};
+
+// Entries written before the nested Map was serialized properly, or hand-edited
+// gists, can contain anything. Skip whatever does not fit the shape.
+const deserializeExplanations = (raw: unknown): ExplanationsCache => {
+    const cache: ExplanationsCache = new Map();
+    if (!raw || typeof raw !== 'object') return cache;
+
+    for (const [path, levels] of Object.entries(raw as Record<string, unknown>)) {
+        if (!levels || typeof levels !== 'object') continue;
+        const levelMap = new Map<ExplanationLevel, Explanation>();
+        for (const level of LEVELS) {
+            const entry = (levels as Record<string, unknown>)[level];
+            if (entry && typeof entry === 'object' && Array.isArray((entry as Explanation).blocks)) {
+                levelMap.set(level, entry as Explanation);
+            }
+        }
+        if (levelMap.size > 0) cache.set(path, levelMap);
+    }
+    return cache;
+};
 
 const getAllFiles = (node: FileNode, files: FileNode[] = []): FileNode[] => {
     if (node.content !== null) {
@@ -90,7 +122,7 @@ const App: React.FC = () => {
   });
   const [authError, setAuthError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const [explanationsCache, setExplanationsCache] = useState<Map<string, Map<ExplanationLevel, Explanation>>>(new Map());
+  const [explanationsCache, setExplanationsCache] = useState<ExplanationsCache>(new Map());
   const [processingStatus, setProcessingStatus] = useState<Map<string, ProcessingStatus>>(new Map());
   const [processingQueue, setProcessingQueue] = useState<FileNode[]>([]);
   const [isAppLoading, setIsAppLoading] = useState<boolean>(false);
@@ -118,6 +150,18 @@ const App: React.FC = () => {
 
   // Ref to track the last saved project to prevent duplicate saves
   const lastSavedProjectRef = useRef<string | null>(null);
+
+  // fetchAndCacheExplanation both reads and writes these, and runs inside a long
+  // `for await` loop. Reading them from state would pin a snapshot taken before
+  // the loop started, so mirror them into refs and read those instead.
+  const explanationsCacheRef = useRef(explanationsCache);
+  const processingStatusRef = useRef(processingStatus);
+  const globalBlockCacheRef = useRef(globalBlockCache);
+  const dispatchedFilesRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => { explanationsCacheRef.current = explanationsCache; }, [explanationsCache]);
+  useEffect(() => { processingStatusRef.current = processingStatus; }, [processingStatus]);
+  useEffect(() => { globalBlockCacheRef.current = globalBlockCache; }, [globalBlockCache]);
 
   const currentExplanation = useMemo(() => {
     if (!selectedFile) return null;
@@ -153,10 +197,14 @@ const App: React.FC = () => {
 
   const handleAuthError = (error: string) => {
     setAuthError(error);
-    setTimeout(() => setAuthError(null), 5000); // Clear error after 5 seconds
   };
 
-  // Save explanation level preference
+  useEffect(() => {
+    if (!authError) return;
+    const timer = setTimeout(() => setAuthError(null), 5000);
+    return () => clearTimeout(timer);
+  }, [authError]);
+
   useEffect(() => {
     localStorage.setItem('explanation_level', explanationLevel);
   }, [explanationLevel]);
@@ -177,7 +225,8 @@ const App: React.FC = () => {
     setSummaryStatus(new Map());
     setHistory([]);
     setActiveHistoryId(null);
-    lastSavedProjectRef.current = null; // Reset saved project ref
+    lastSavedProjectRef.current = null;
+    dispatchedFilesRef.current.clear();
   };
 
   // Load history on mount
@@ -231,7 +280,7 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString(),
       projectName: projectName || 'Untitled Project',
       fileTree,
-      explanationsCache: Object.fromEntries(explanationsCache),
+      explanationsCache: serializeExplanations(explanationsCache),
       fileSummaries: Object.fromEntries(fileSummaries),
       projectSummary,
     };
@@ -260,9 +309,10 @@ const App: React.FC = () => {
 
   // Load history entry
   const handleSelectHistory = useCallback((entry: HistoryEntry) => {
+    const restored = deserializeExplanations(entry.explanationsCache);
     setFileTree(entry.fileTree);
-    setExplanationsCache(new Map(Object.entries(entry.explanationsCache)));
-    setFileSummaries(new Map(Object.entries(entry.fileSummaries)));
+    setExplanationsCache(restored);
+    setFileSummaries(new Map(Object.entries(entry.fileSummaries ?? {})));
     setProjectSummary(entry.projectSummary);
     setActiveHistoryId(entry.id);
     setSelectedFile(null);
@@ -271,7 +321,7 @@ const App: React.FC = () => {
     const allFiles = getAllFiles(entry.fileTree);
     const newProcessingStatus = new Map<string, ProcessingStatus>();
     allFiles.forEach(file => {
-      if (entry.explanationsCache[file.path]) {
+      if (restored.has(file.path)) {
         newProcessingStatus.set(file.path, 'done');
       }
     });
@@ -298,9 +348,8 @@ const App: React.FC = () => {
       
       setIsProjectSummaryLoading(true);
       
-      // Initialize all files as summarizing
-      const summaryStatus = new Map(files.map(f => [f.path, 'summarizing' as SummaryStatus]));
-      setSummaryStatus(summaryStatus);
+      const statuses = new Map<string, SummaryStatus>(files.map(f => [f.path, 'summarizing' as SummaryStatus]));
+      setSummaryStatus(new Map(statuses));
 
       try {
           const filesWithContent = files.map(file => ({
@@ -316,11 +365,10 @@ const App: React.FC = () => {
           for await (const result of generateAllSummariesStream(filesWithContent, apiKey)) {
               if (result.type === 'file_summary') {
                   newSummaries.set(result.path, result.summary);
-                  summaryStatus.set(result.path, 'done');
-                  
-                  // Update UI incrementally
+                  statuses.set(result.path, 'done');
+
                   setFileSummaries(new Map(newSummaries));
-                  setSummaryStatus(new Map(summaryStatus));
+                  setSummaryStatus(new Map(statuses));
               } else if (result.type === 'project_summary') {
                   setProjectSummary(result.summary);
                   projectSummaryReceived = true;
@@ -331,7 +379,6 @@ const App: React.FC = () => {
           
           // If no project summary was received, generate a fallback one
           if (!projectSummaryReceived && newSummaries.size > 0) {
-              console.warn("Project summary not received from streaming API, generating fallback...");
               try {
                   const fallbackSummary = await generateProjectSummary(
                       Array.from(newSummaries.entries()).map(([path, summary]) => ({path, summary})), 
@@ -351,10 +398,10 @@ const App: React.FC = () => {
           const errorSummaries = new Map<string, string>();
           files.forEach(f => {
               errorSummaries.set(f.path, 'Failed to generate summary.');
-              summaryStatus.set(f.path, 'done');
+              statuses.set(f.path, 'done');
           });
           setFileSummaries(errorSummaries);
-          setSummaryStatus(new Map(summaryStatus));
+          setSummaryStatus(new Map(statuses));
           setProjectSummary("Could not generate a project summary.");
       }
 
@@ -376,40 +423,31 @@ const App: React.FC = () => {
   }, [generateSummaries]);
 
  const fetchAndCacheExplanation = useCallback(async (file: FileNode, level: ExplanationLevel) => {
-    // Check if we already have this level cached
-    const levelMap = explanationsCache.get(file.path);
-    if (levelMap?.has(level)) {
-      return; // Already have this level
-    }
-
-    if (!file.content || !apiKey || processingStatus.get(file.path) === 'processing') {
+    if (explanationsCacheRef.current.get(file.path)?.has(level)) {
       return;
     }
 
+    if (!file.content || !apiKey || processingStatusRef.current.get(file.path) === 'processing') {
+      return;
+    }
+
+    processingStatusRef.current = new Map(processingStatusRef.current).set(file.path, 'processing');
     setProcessingStatus(prev => new Map(prev).set(file.path, 'processing'));
     setExplanationsCache(prev => {
       const newCache = new Map(prev);
-      const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
+      const levelMap = new Map(newCache.get(file.path) ?? []);
       levelMap.set(level, { blocks: [] });
       newCache.set(file.path, levelMap);
       return newCache;
     });
 
     try {
-        console.log(`🚀 Starting explanation stream for ${file.name} at ${level} level`);
-        const stream = await explainFileInBulk(file.name, file.content, apiKey, level);
+        const stream = explainFileInBulk(file.name, file.content, apiKey, level);
 
         let buffer = '';
         const blocks: ExplanationBlock[] = [];
-        let duplicatesFound = 0;
-        let newExplanations = 0;
-        let chunkCount = 0;
 
         for await (const chunk of stream) {
-            chunkCount++;
-            if (chunkCount === 1) {
-                console.log(`📥 First chunk received for ${file.name}`);
-            }
             if (chunk.text) {
                 buffer += chunk.text;
                 const lines = buffer.split('\n');
@@ -424,15 +462,12 @@ const App: React.FC = () => {
                                 const blockHash = createBlockHash(parsed.code_block);
                                 let explanation = parsed.explanation;
                                 
-                                // Check if we already have an explanation for this code block
-                                const cachedExplanation = globalBlockCache.get(blockHash);
+                                const cachedExplanation = globalBlockCacheRef.current.get(blockHash);
                                 if (cachedExplanation) {
                                     explanation = cachedExplanation;
-                                    duplicatesFound++;
                                 } else {
-                                    // Cache the new explanation
-                                    setGlobalBlockCache(prev => new Map(prev).set(blockHash, explanation));
-                                    newExplanations++;
+                                    globalBlockCacheRef.current = new Map(globalBlockCacheRef.current).set(blockHash, explanation);
+                                    setGlobalBlockCache(globalBlockCacheRef.current);
                                 }
                                 
                                 blocks.push({
@@ -443,14 +478,14 @@ const App: React.FC = () => {
                                 // Update UI with new block immediately
                                 setExplanationsCache(prev => {
                                     const newCache = new Map(prev);
-                                    const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
+                                    const levelMap = new Map(newCache.get(file.path) ?? []);
                                     levelMap.set(level, { blocks: [...blocks] });
                                     newCache.set(file.path, levelMap);
                                     return newCache;
                                 });
                             }
                         } catch (e) {
-                            console.warn('Skipping invalid JSON line:', trimmedLine);
+                            // Partial line from the stream, wait for the rest.
                         }
                     }
                 }
@@ -465,13 +500,12 @@ const App: React.FC = () => {
                     const blockHash = createBlockHash(parsed.code_block);
                     let explanation = parsed.explanation;
                     
-                    const cachedExplanation = globalBlockCache.get(blockHash);
+                    const cachedExplanation = globalBlockCacheRef.current.get(blockHash);
                     if (cachedExplanation) {
                         explanation = cachedExplanation;
-                        duplicatesFound++;
                     } else {
-                        setGlobalBlockCache(prev => new Map(prev).set(blockHash, explanation));
-                        newExplanations++;
+                        globalBlockCacheRef.current = new Map(globalBlockCacheRef.current).set(blockHash, explanation);
+                        setGlobalBlockCache(globalBlockCacheRef.current);
                     }
                     
                     blocks.push({
@@ -481,56 +515,38 @@ const App: React.FC = () => {
                     
                     setExplanationsCache(prev => {
                         const newCache = new Map(prev);
-                        const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
+                        const levelMap = new Map(newCache.get(file.path) ?? []);
                         levelMap.set(level, { blocks: [...blocks] });
                         newCache.set(file.path, levelMap);
                         return newCache;
                     });
                 }
             } catch (e) {
-                console.warn('Skipping invalid JSON in buffer:', buffer.trim());
+                // Trailing partial line, nothing usable.
             }
-        }
-        
-        // Log completion stats
-        console.log(`✅ Stream completed for ${file.name}: ${chunkCount} chunks received, ${blocks.length} blocks parsed`);
-        if (duplicatesFound > 0 || newExplanations > 0) {
-            console.log(`📋 Explanation cache stats for ${file.name}: ${newExplanations} new explanations, ${duplicatesFound} reused from cache`);
-        }
-
-        if (blocks.length === 0) {
-            console.warn(`⚠️ No blocks were parsed from the stream for ${file.name}. Buffer content:`, buffer);
         }
 
     } catch (error) {
-      console.error(`❌ Error fetching explanation for ${file.name}:`, error);
+      console.error(`Failed to explain ${file.name}:`, error);
 
-      // Extract detailed error information
-      let errorDetails = 'Unknown error';
-      if (error instanceof Error) {
-        errorDetails = error.message;
-        console.error(`Error message: ${error.message}`);
-        console.error(`Error stack:`, error.stack);
-      } else {
-        console.error(`Non-Error object thrown:`, error);
-        errorDetails = String(error);
-      }
+      const errorDetails = error instanceof Error ? error.message : String(error);
 
       const genericMessage = handleApiError(error, apiKey, setApiKey);
       const errorMessage = `Failed to analyze file.\n\n**Error:** ${errorDetails}\n\n**Suggestion:** ${genericMessage}`;
 
       setExplanationsCache(prev => {
           const newCache = new Map(prev);
-          const levelMap = newCache.get(file.path) || new Map<ExplanationLevel, Explanation>();
+          const levelMap = new Map(newCache.get(file.path) ?? []);
           const block = { code_block: `// Error for ${file.name}`, explanation: errorMessage };
           levelMap.set(level, { blocks: [block] });
           newCache.set(file.path, levelMap);
           return newCache;
       });
     } finally {
+      processingStatusRef.current = new Map(processingStatusRef.current).set(file.path, 'done');
       setProcessingStatus(prev => new Map(prev).set(file.path, 'done'));
     }
-  }, [processingStatus, apiKey, globalBlockCache, explanationsCache]);
+  }, [apiKey]);
 
   const handleSelectFile = useCallback((file: FileNode) => {
     if (file.path !== selectedFile?.path) {
@@ -556,12 +572,29 @@ const App: React.FC = () => {
     setProcessingQueue(allFiles);
   }, [fileTree, explanationsCache, explanationLevel]);
 
-  const handleDeepDive = async (blockIndex: number) => {
+  // Clones both Map levels so no previous state object is mutated in place.
+  const updateBlock = useCallback((path: string, level: ExplanationLevel, blockIndex: number, update: (block: ExplanationBlock) => ExplanationBlock) => {
+      setExplanationsCache(prev => {
+          const levelMap = prev.get(path);
+          const currentExpl = levelMap?.get(level);
+          if (!levelMap || !currentExpl || !currentExpl.blocks[blockIndex]) return prev;
+
+          const newBlocks = [...currentExpl.blocks];
+          newBlocks[blockIndex] = update(newBlocks[blockIndex]);
+
+          const newLevelMap = new Map(levelMap);
+          newLevelMap.set(level, { ...currentExpl, blocks: newBlocks });
+
+          const newCache = new Map(prev);
+          newCache.set(path, newLevelMap);
+          return newCache;
+      });
+  }, []);
+
+  const handleDeepDive = useCallback(async (blockIndex: number) => {
       if (!selectedFile || !apiKey || deepDiveStatus.isLoading) return;
 
-      const levelMap = explanationsCache.get(selectedFile.path);
-      const explanation = levelMap?.get(explanationLevel);
-      const block = explanation?.blocks[blockIndex];
+      const block = explanationsCacheRef.current.get(selectedFile.path)?.get(explanationLevel)?.blocks[blockIndex];
 
       if (!block) return;
       
@@ -569,87 +602,55 @@ const App: React.FC = () => {
 
       try {
           const stream = await explainSnippetStream(block, selectedFile.name, apiKey);
-          
-          setExplanationsCache(prev => {
-              const newCache = new Map(prev);
-              const levelMap = newCache.get(selectedFile.path);
-              const currentExpl = levelMap?.get(explanationLevel);
-              if (currentExpl && levelMap) {
-                  const newBlocks = [...currentExpl.blocks];
-                  newBlocks[blockIndex] = { ...newBlocks[blockIndex], deep_dive_explanation: '' };
-                  levelMap.set(explanationLevel, { ...currentExpl, blocks: newBlocks });
-                  newCache.set(selectedFile.path, levelMap);
-              }
-              return newCache;
-          });
+
+          updateBlock(selectedFile.path, explanationLevel, blockIndex, b => ({ ...b, deep_dive_explanation: '' }));
 
           for await (const chunk of stream) {
-              setExplanationsCache(prev => {
-                  const newCache = new Map(prev);
-                  const levelMap = newCache.get(selectedFile.path);
-                  const currentExpl = levelMap?.get(explanationLevel);
-                  if (currentExpl && levelMap) {
-                      const newBlocks = [...currentExpl.blocks];
-                      const currentBlock = newBlocks[blockIndex];
-                      newBlocks[blockIndex] = { ...currentBlock, deep_dive_explanation: (currentBlock.deep_dive_explanation || '') + chunk.text };
-                      levelMap.set(explanationLevel, { ...currentExpl, blocks: newBlocks });
-                      newCache.set(selectedFile.path, levelMap);
-                  }
-                  return newCache;
-              });
+              updateBlock(selectedFile.path, explanationLevel, blockIndex, b => ({
+                  ...b,
+                  deep_dive_explanation: (b.deep_dive_explanation || '') + (chunk.text ?? '')
+              }));
           }
       } catch (error) {
-          console.error("❌ Deep dive failed:", error);
-          if (!selectedFile) return;
+          console.error('Deep dive failed:', error);
 
-          // Extract detailed error information
-          let errorDetails = 'Unknown error';
-          if (error instanceof Error) {
-            errorDetails = error.message;
-            console.error(`Deep dive error message: ${error.message}`);
-            console.error(`Deep dive error stack:`, error.stack);
-          } else {
-            console.error(`Deep dive non-Error object thrown:`, error);
-            errorDetails = String(error);
-          }
-
+          const errorDetails = error instanceof Error ? error.message : String(error);
           const genericMessage = handleApiError(error, apiKey, setApiKey);
           const errorMessage = `**Deep Dive Failed**\n\n**Error:** ${errorDetails}\n\n**Suggestion:** ${genericMessage}`;
 
-          setExplanationsCache(prev => {
-              const newCache = new Map(prev);
-              const levelMap = newCache.get(selectedFile.path);
-              const currentExpl = levelMap?.get(explanationLevel);
-              if (currentExpl && levelMap) {
-                  const newBlocks = [...currentExpl.blocks];
-                  newBlocks[blockIndex] = { ...newBlocks[blockIndex], deep_dive_explanation: errorMessage };
-                  levelMap.set(explanationLevel, { ...currentExpl, blocks: newBlocks });
-                  newCache.set(selectedFile.path, levelMap);
-              }
-              return newCache;
-          });
+          updateBlock(selectedFile.path, explanationLevel, blockIndex, b => ({ ...b, deep_dive_explanation: errorMessage }));
       } finally {
           setDeepDiveStatus({ file: null, blockIndex: null, isLoading: false });
       }
-  };
+  }, [selectedFile, apiKey, deepDiveStatus.isLoading, explanationLevel, updateBlock]);
 
   useEffect(() => {
     if (processingQueue.length === 0) return;
 
     const fileToProcess = processingQueue[0];
+    const dispatchKey = `${fileToProcess.path}::${explanationLevel}`;
 
-    // Skip files that are already processing or already have this level
-    const levelMap = explanationsCache.get(fileToProcess.path);
-    if (processingStatus.get(fileToProcess.path) === 'processing' || levelMap?.has(explanationLevel)) {
+    // The effect re-runs while the file is still streaming, so a state-based
+    // guard would read a stale snapshot. This ref is written synchronously.
+    if (dispatchedFilesRef.current.has(dispatchKey)) return;
+
+    if (explanationsCacheRef.current.get(fileToProcess.path)?.has(explanationLevel)) {
       setProcessingQueue(prev => prev.slice(1));
       return;
     }
 
-    fetchAndCacheExplanation(fileToProcess, explanationLevel).then(() => {
-      setProcessingQueue(prev => prev.slice(1));
-    });
+    dispatchedFilesRef.current.add(dispatchKey);
 
-  }, [processingQueue, fetchAndCacheExplanation, processingStatus, explanationsCache, explanationLevel]);
+    fetchAndCacheExplanation(fileToProcess, explanationLevel)
+      .catch(error => {
+        console.error(`Queue processing failed for ${fileToProcess.name}:`, error);
+      })
+      .finally(() => {
+        dispatchedFilesRef.current.delete(dispatchKey);
+        setProcessingQueue(prev => prev.slice(1));
+      });
+
+  }, [processingQueue, fetchAndCacheExplanation, explanationLevel]);
 
   // Auto-save to history when all processing is complete
   useEffect(() => {
@@ -700,7 +701,7 @@ const App: React.FC = () => {
     return (
       <>
         <a
-          href="../wayfinder/index.html"
+          href="https://chraltro.github.io/wayfinder/"
           className="fixed bottom-5 right-5 z-[1000] opacity-60 hover:opacity-100 hover:scale-110 transition-all duration-200"
           title="Back to Wayfinder"
         >
@@ -720,7 +721,7 @@ const App: React.FC = () => {
     <>
       {/* Wayfinder Logo Link */}
       <a
-        href="../wayfinder/index.html"
+        href="https://chraltro.github.io/wayfinder/"
         className="fixed bottom-5 right-5 z-[1000] opacity-60 hover:opacity-100 hover:scale-110 transition-all duration-200"
         title="Back to Wayfinder"
       >
